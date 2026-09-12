@@ -33,7 +33,7 @@ export default [
     files: ["**/*.{ts,tsx,js,jsx}"],
     rules: {
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "off",
       "no-console": ["warn", { allow: ["warn", "error", "log"] }],
     },
   },

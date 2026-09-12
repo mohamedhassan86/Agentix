@@ -1,9 +1,16 @@
 /**
  * Next.js instrumentation hook for OpenTelemetry.
- * Phase 1 shell - no-op.
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    // Telemetry will be initialized in Phase 2
+    const { initializeTelemetry } = await import("./infrastructure/observability/telemetry");
+    const version = process.env.npm_package_version ?? "0.1.0";
+    await initializeTelemetry({
+      serviceName: "agentix-web",
+      serviceVersion: version,
+      tracesUrl: process.env.OTEL_TRACES_EXPORTER_URL,
+      metricsUrl: process.env.OTEL_METRICS_EXPORTER_URL,
+      enabled: true,
+    });
   }
 }

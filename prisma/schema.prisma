@@ -1,6 +1,3 @@
-// Prisma schema - Phase 1 placeholder
-// Real tables will be added in Phase 2 (T014)
-
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/prisma"
@@ -12,11 +9,111 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Placeholder model to allow prisma validate/generate in Phase 1
-// Will be replaced by outbox_messages etc in Phase 2
-model _Placeholder {
-  id String @id @default(uuid())
-  createdAt DateTime @default(now()) @map("created_at")
+enum WorkScope {
+  global
+  tenant
 
-  @@map("_placeholder")
+  @@map("work_scope")
+}
+
+enum OutboxStatus {
+  pending
+  processing
+  succeeded
+  failed
+
+  @@map("outbox_status")
+}
+
+enum AttemptOutcome {
+  succeeded
+  retry_scheduled
+  failed
+  cancelled
+  lease_expired
+
+  @@map("attempt_outcome")
+}
+
+model OutboxMessage {
+  id             String       @id @db.Uuid
+  workType       String       @map("work_type") @db.VarChar(120)
+  schemaVersion  Int          @map("schema_version")
+  scope          WorkScope
+  orgId          String?      @map("org_id") @db.Uuid
+  idempotencyKey String       @map("idempotency_key") @db.VarChar(200)
+  correlationId  String       @map("correlation_id") @db.Uuid
+  traceParent    String?      @map("trace_parent") @db.VarChar(55)
+  traceState     String?      @map("trace_state") @db.VarChar(512)
+  payload        Json         @db.JsonB
+  status         OutboxStatus @default(pending)
+  availableAt    DateTime     @map("available_at") @db.Timestamptz
+  attemptCount   Int          @map("attempt_count") @db.SmallInt @default(0)
+  maxAttempts    Int          @map("max_attempts") @db.SmallInt @default(3)
+  leaseOwner     String?      @map("lease_owner") @db.VarChar(120)
+  leaseExpiresAt DateTime?    @map("lease_expires_at") @db.Timestamptz
+  lastErrorCode  String?      @map("last_error_code") @db.VarChar(120)
+  createdAt      DateTime     @map("created_at") @db.Timestamptz @default(now())
+  startedAt      DateTime?    @map("started_at") @db.Timestamptz
+  completedAt    DateTime?    @map("completed_at") @db.Timestamptz
+  updatedAt      DateTime     @map("updated_at") @db.Timestamptz @updatedAt
+
+  attempts OutboxAttempt[]
+  demoEffect FoundationDemoEffect?
+
+  @@map("outbox_messages")
+  @@index([availableAt, createdAt, id], map: "outbox_pending_due_idx")
+  @@index([orgId, createdAt, id], map: "outbox_org_idx")
+  @@index([correlationId, createdAt, id], map: "outbox_correlation_idx")
+  @@index([status, completedAt], map: "outbox_status_completed_idx")
+}
+
+model OutboxAttempt {
+  id              String           @id @db.Uuid
+  outboxId        String           @map("outbox_id") @db.Uuid
+  orgId           String?          @map("org_id") @db.Uuid
+  attemptNumber   Int              @map("attempt_number") @db.SmallInt
+  workerId        String           @map("worker_id") @db.VarChar(120)
+  claimedAt       DateTime         @map("claimed_at") @db.Timestamptz @default(now())
+  finishedAt      DateTime?        @map("finished_at") @db.Timestamptz
+  outcome         AttemptOutcome?
+  errorCode       String?          @map("error_code") @db.VarChar(120)
+  nextAvailableAt DateTime?        @map("next_available_at") @db.Timestamptz
+  durationMs      Int?             @map("duration_ms")
+
+  outbox OutboxMessage @relation(fields: [outboxId], references: [id])
+
+  @@map("outbox_attempts")
+  @@unique([outboxId, attemptNumber], map: "outbox_attempt_number_unique")
+  @@index([orgId, claimedAt, id], map: "attempt_org_idx")
+  @@index([outboxId, claimedAt], map: "attempt_outbox_idx")
+}
+
+model FoundationDemoRequest {
+  id             String    @id @db.Uuid
+  idempotencyKey String    @unique @map("idempotency_key") @db.VarChar(200)
+  correlationId  String    @map("correlation_id") @db.Uuid
+  requestedAt    DateTime  @map("requested_at") @db.Timestamptz @default(now())
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz
+  createdAt      DateTime  @map("created_at") @db.Timestamptz @default(now())
+  updatedAt      DateTime  @map("updated_at") @db.Timestamptz @updatedAt
+
+  effect FoundationDemoEffect?
+
+  @@map("foundation_demo_requests")
+  @@index([correlationId, requestedAt], map: "demo_request_correlation_idx")
+}
+
+model FoundationDemoEffect {
+  id            String   @id @db.Uuid
+  requestId     String   @unique @map("request_id") @db.Uuid
+  outboxId      String   @unique @map("outbox_id") @db.Uuid
+  correlationId String   @map("correlation_id") @db.Uuid
+  appliedAt     DateTime @map("applied_at") @db.Timestamptz @default(now())
+
+  request FoundationDemoRequest @relation(fields: [requestId], references: [id])
+  outbox  OutboxMessage         @relation(fields: [outboxId], references: [id])
+
+  @@map("foundation_demo_effects")
+  @@index([correlationId, appliedAt], map: "demo_effect_correlation_idx")
 }
