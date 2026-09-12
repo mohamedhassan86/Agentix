@@ -15,7 +15,7 @@ decision happens in the repository. Every LLM call is metered to the cent.
 
 | Capability | Behaviour |
 | --- | --- |
-| **Tenancy** | Organisations, members with roles `owner` / `admin` / `member` / `viewer`, projects mapped to a repo. Shared schema, `org_id` on every tenant table, EF Core global query filters. |
+| **Tenancy** | Organisations, members with roles `owner` / `admin` / `member` / `viewer`, projects mapped to a repo. Shared schema, `org_id` on every tenant table, ORM-level global query filters. |
 | **Agent pipeline** | One agent per phase. Per-phase selection of provider (Anthropic / OpenAI / Azure OpenAI / Gemini / OpenRouter / **Mock**), model, temperature, rules, and skills from a library (built-in Spec Kit skills + org-authored skills). |
 | **Hooks as the bus** | `before` hooks gather read-only repo context (tree, README, constitution, specs, search, commits). `after` hooks run the **Judge** — score = mean of Completeness, Correctness, Specificity, Measurability — with a bounded feedback loop back to the producing agent. Every hook run and inter-agent event lands on the run timeline. |
 | **GitHub as the UI for approval** | Issue labelled `sdlc` (or a `/specify` comment) starts a run; the bot commits `specs/NNN-feature/*.md`, opens a **draft PR**, and asks for `/approve`, `/revise <feedback>`, `/reject`, `/answer`, `/status`, `/cost`, `/retry`. Merging the PR = delivered. The console has **no approve button**; its simulator posts through the exact same HMAC-verified webhook path. |
@@ -26,24 +26,26 @@ decision happens in the repository. Every LLM call is metered to the cent.
 ## Architecture
 
 ```
-                ┌────────────────────────────── Vercel (Next.js app) ────────────────────────┐
-   browser ───▶ │ Next.js 16+ client (App Router, React, generated OpenAPI clients)          │
-                └───────────────┬──────────────────────────────────────────────────────────┘
-                                │ same-origin /api/* proxy
-   GitHub ──HMAC webhook──▶ ┌───▼─────────────────────────────── a real host (dev tunnel → prod container) ─┐
-   Azure DevOps ───────────▶│ Agentix.Api     controllers (thin: 1 dispatch line) · authz · OpenAPI · OTel │
-                            │ Agentix.Worker  hook/agent/Judge execution · outbox · metering · budgets      │
-                            │   ├── Agentix.Application  commands/queries + handlers, ports, policies      │
-                            │   ├── Agentix.Domain       rich aggregates · value objects · domain events    │
-                            │   └── Agentix.Infrastructure EF Core · Postgres · LLM providers ·            │
-                            │        ISourceProvider (GitHub / AzureDevOps stub) · AES-GCM + KMS · queues  │
-                            └───────────────┬──────────────────────────────────────────────┬───────────────┘
-                                          │                                                │
-                              PostgreSQL (Neon / Supabase / RDS)                  KMS / secret manager
+┌────────────────────────── Vercel (Next.js app) ───────────────────────────────────────┐
+   browser ───▶ │ UI: App Router · React · typed client · design tokens      /api/v1: thin route handlers│
+   GitHub ────▶ │ webhook ingress (HMAC-verified) · tenant middleware · authz policies · OpenAPI · OTel │
+   ADO ───────▶ │   ├── application    commands/queries + handlers · ports · policies                   │
+                │   ├── domain         rich aggregates · value objects · domain events                  │
+                │   └── infrastructure Prisma · Postgres · LLM providers · ISourceProvider (GitHub /    │
+                │        AzureDevOps stub) · AES-GCM + KMS · outbox · metering · budgets                │
+                └───────────────────────────────────────────┬───────────────────────────────────────────┘
+                                                            │
+            worker (same TypeScript codebase — Node process locally; Vercel function/cron or
+            container in prod): outbox dispatch · hook/agent/Judge execution · metering · budgets
+                                                            │
+                                 ┌─────────────────────────────────────────────────────────────────┐
+                                 ▼                                                                  ▼
+                PostgreSQL (Neon / Supabase / RDS)                                                  KMS / secret manager
 ```
 
-Clean architecture, DDD with a rich domain model, CQRS-style dispatch, thin controllers — the
-binding rules are in the [constitution](.specify/memory/constitution.md) (Principles II–IV).
+Clean architecture, DDD with a rich domain model, CQRS-style dispatch, thin route handlers — one
+Next.js codebase for the UI and the API, worker for durable background work — the binding rules
+are in the [constitution](.specify/memory/constitution.md) (Principles II–IV).
 
 ## Repository layout
 
@@ -54,15 +56,18 @@ binding rules are in the [constitution](.specify/memory/constitution.md) (Princi
 specs/             one directory per feature: spec.md plan.md research.md data-model.md contracts/ tasks.md
 docs/              SPEC-DRIVEN-PLAYBOOK.md (how we build), governance/exceptions.md
 Public/Desgin/     index.html — the canonical UI design guideline (path intentionally as-is)
-src/               Agentix.Domain · Application · Infrastructure · Api · Worker
-client/            agentix-web (Next.js app — App Router, React, generated OpenAPI clients)
-tests/             Domain.Tests · Application.Tests · IntegrationTests (xUnit + Testcontainers)
+src/domain         entities · value objects · domain events · errors (pure TypeScript)
+src/application    commands/queries + handlers · ports · DTOs · policies
+src/infrastructure Prisma · Postgres · LLM providers · ISourceProvider · crypto · outbox · telemetry
+src/app            Next.js App Router: pages · route handlers · middleware · server actions
+src/worker         hook/agent execution host · outbox dispatch
+tests/             unit + integration (Vitest + Testcontainers)
 ```
 
 ## Prerequisites
 
-- .NET 10 SDK (`net10.0`) and EF Core CLI: `dotnet tool install -g dotnet-ef`
-- Node 22+ and npm; Next.js 16+ is scaffolded per project with `create-next-app` (no global CLI)
+- Node 22 LTS and npm; Next.js 16+ is scaffolded per project with `create-next-app` (no global CLI)
+- Prisma (per project, via `npx prisma`) for the ORM, client, and migrations
 - Docker Desktop (Testcontainers for integration tests) *or* a Neon/Supabase branch database
 - Python 3.11+ and `uv` for the Spec Kit CLI: `uv tool install -q --from git+https://github.com/github/spec-kit.git specify-cli`
 - A KMS/secret manager for the KEK (local dev falls back to a file-backed protector with a fake key)
@@ -74,23 +79,17 @@ tests/             Domain.Tests · Application.Tests · IntegrationTests (xUnit 
 # 1. database — pick one
 docker run -d --name agentix-pg -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=agentix postgres:16
 
-# 2. API (runs on http://localhost:5080, exposed to the SPA through a dev tunnel in dev)
-cd src/Agentix.Api
-dotnet restore && dotnet ef database update && dotnet run
+# 2. app (UI + /api/v1 + webhook ingress, runs on http://localhost:3000)
+npm install && npx prisma migrate deploy && npm run dev
 
 # 3. worker (hooks, agent runs, metering, budget enforcement)
-cd ../Agentix.Worker && dotnet run
-
-# 4. Next.js client (dev proxy of /api/* to :5080, same shape as the Vercel deployment)
-cd ../../client/agentix-web
-npm install && npm run dev          # http://localhost:3000
+npm run worker
 ```
 
 Verification gates (all must be green before a phase is called complete):
 
 ```bash
-dotnet build            && dotnet test             && dotnet format --verify-no-changes
-cd client/agentix-web && npm run lint && npm test && npm run build
+npm run lint && npm test && npm run build
 ```
 
 ## How we build features (Spec Kit)

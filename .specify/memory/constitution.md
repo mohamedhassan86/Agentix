@@ -50,25 +50,26 @@ cannot credibly sell it, and per-phase artifact commits are what make agent outp
 Solution layout is fixed; dependency direction points inward and is never violated.
 
 ```
-src/Agentix.Domain          → entities, value objects, domain events, domain services, errors
-src/Agentix.Application     → use cases (commands/queries + handlers), ports, DTOs, policies
-src/Agentix.Infrastructure  → EF Core, Postgres, LLM providers, ISourceProvider (GitHub/AzureDevOps),
-                              crypto, queue/Hangfire, telemetry adapters
-src/Agentix.Api             → controllers, middleware, filters, OpenAPI, composition root (part)
-src/Agentix.Worker          → hook/agent execution host, composition root (part)
-tests/Agentix.Domain.Tests, tests/Agentix.Application.Tests, tests/Agentix.IntegrationTests
-client/agentix-web          → Next.js app (App Router, React, shared design-token module)
+src/domain              → entities, value objects, domain events, domain services, errors (pure TypeScript)
+src/application         → use cases (commands/queries + handlers), ports, DTOs, policies
+src/infrastructure      → Prisma/Postgres, LLM providers, ISourceProvider (GitHub/AzureDevOps),
+                          crypto, outbox/queue, telemetry adapters
+src/app                 → Next.js App Router: pages, route handlers, middleware, server actions,
+                          OpenAPI, composition root (part)
+src/worker              → hook/agent execution host, outbox dispatch, composition root (part)
+tests/                  → unit + integration tests (Vitest, Testcontainers)
 ```
 
-- `Agentix.Domain` MUST NOT reference EF Core, ASP.NET, HttpClient, provider SDKs, Hangfire,
-  serialization attributes, or any UI type. It has zero NuGet dependencies.
-- `Agentix.Application` references only `Agentix.Domain`. Ports (interfaces) are declared here;
-  implementations live in `Agentix.Infrastructure`.
-- Only the composition roots (`Api`, `Worker`) reference all layers and register DI.
-- No layer skips: `Api` MUST NOT touch `DbContext` or aggregates directly, and `Application`
-  MUST NOT issue raw SQL.
-- Every aggregate and use case MUST be constructible in a unit test without a DI container, a
-  database, or the network.
+- `domain` MUST NOT import Next.js, React, the ORM, HTTP clients, provider SDKs, queue
+  libraries, or any UI type. It has zero runtime dependencies beyond the TypeScript standard
+  library.
+- `application` references only `domain`. Ports (interfaces) are declared here; implementations
+  live in `infrastructure`.
+- Only the composition roots (`app`, `worker`) reference all layers and wire dependencies.
+- No layer skips: `app` MUST NOT touch the ORM or aggregates directly, and `application` MUST
+  NOT issue raw SQL.
+- Every aggregate and use case MUST be constructible in a unit test without a database or the
+  network.
 
 Rationale: the pipeline must stay testable while providers, hosts, and ORM details churn.
 
@@ -94,51 +95,53 @@ Rationale: the pipeline must stay testable while providers, hosts, and ORM detai
 Rationale: budgets, approval state, and tenant rights are invariants; if they live in handlers they
 will be duplicated by the next handler and the one after that.
 
-### IV. Thin Controllers; Explicit Commands and Queries
+### IV. Thin Route Handlers; Explicit Commands and Queries
 
-- A controller action body is exactly one dispatch line plus, when required, an attribute set.
-  No branches, no repository/DbContext access, no try/catch, no manual error mapping, no business
-  logging inside actions.
+- A route handler (or server action) body is exactly one dispatch line plus, when required, a
+  typed parse. No branches, no ORM/direct aggregate access, no try/catch, no manual error
+  mapping, no business logging inside handlers.
 
-  ```csharp
-  [HttpPost("{projectId}/runs")]
-  public Task<RunStartedDto> Start(Guid projectId, StartRunCommand command, CancellationToken ct)
-      => _dispatcher.Send(new StartRunCommand(projectId, command.PhaseSelectionId), ct);
+  ```ts
+  // POST /api/v1/projects/:projectId/runs — src/app/api/v1/projects/[projectId]/runs/route.ts
+  export const POST: RouteHandler = (req, ctx) =>
+    dispatch(startRun(parseStartRunCommand(req, ctx)));
   ```
 
-- Cross-cutting behaviour belongs in middleware/filters: authentication, tenant binding,
-  rate limiting, model validation, `ProblemDetails` mapping, metering correlation, request logging.
+- Cross-cutting behaviour belongs in middleware and global error handling: authentication, tenant
+  binding, rate limiting, model validation, `ProblemDetails` mapping, metering correlation,
+  request logging.
 - Command handlers mutate through aggregates; query handlers read through projections
-  (`IQueryable` → DTO) and MUST NOT mutate state or return EF entity types across the boundary.
-- Contracts are code-first with explicit request/response records in `Agentix.Application`;
-  OpenAPI 3.1 is generated from them and committed to `contracts/openapi/*.json` per spec so the
-  Next.js client can generate typed clients from the same source of truth.
+  (typed query → DTO) and MUST NOT mutate state or return ORM entity types across the boundary.
+- Contracts are code-first with explicit request/response types in `application`; OpenAPI 3.1 is
+  generated from them and committed to `contracts/openapi/*.json` per spec so the API surface —
+  including the webhook ingress and the simulator — has one machine-checkable source of truth.
 - Endpoints are versioned under `/api/v1`; breaking changes require a new version and a spec.
 - Library policy: only permissively licensed open source (MIT, Apache-2.0, BSD-2/3, ISC, MPL-2.0).
   A dependency with a commercial or copyleft obligation MUST NOT be introduced. CQRS dispatch may
-  use such a free library or a hand-written `ICommandDispatcher`; either way one handler per request
-  and no hidden pipeline magic.
+  use such a free library or a hand-written dispatcher; either way one handler per request and no
+  hidden pipeline magic.
 
-Rationale: thin actions keep authorization, metering, and error shape uniform, and keep the API
+Rationale: thin handlers keep authorization, metering, and error shape uniform, and keep the API
 surface mechanically testable (Principle X).
 
 ### V. Tenant Isolation by Construction
 
 - Strategy: single shared schema, `org_id uuid NOT NULL` on every tenant-scoped table. No
   schema-per-tenant and no database-per-tenant unless this constitution is amended (MAJOR).
-- EF Core global query filters are applied to every tenant-scoped entity type by convention
+- ORM-level global query filters are applied to every tenant-scoped entity type by convention
   (registry-driven, so a new entity cannot silently opt out) and child/owned collections are
   filtered through their owning root.
 - `ITenantContext` is established by middleware *before* any handler runs; a request that names a
   tenant-scoped resource without a resolvable, authorized tenant fails closed with 403 — it never
   falls back to "no filter".
 - Reads are filtered; writes MUST additionally verify ownership of every supplied identifier
-  (fetch-under-filter, not `IgnoreQueryFilters`). `IgnoreQueryFilters()` is banned in
-  `Application` and `Api`; permitted only in system/worker maintenance paths with a justification
-  comment, an owner-approved exception, and a covering test.
+  (fetch-under-filter, never an unfiltered scope). Explicitly bypassing the tenant filter — raw
+  SQL or unfiltered ORM queries — is banned in `application` and `app`; permitted only in
+  system/worker maintenance paths with a justification comment, an owner-approved exception, and a
+  covering test.
 - Client payloads and query strings MUST NOT carry an organization identifier when the token or
   webhook connection already implies it. Membership (role) checks are authorization policy, not
-  controller code.
+  route-handler code.
 - Background work (hooks, agent runs, budget sweeps) receives the tenant id explicitly in the job
   payload; ambient tenant state MUST NOT be relied on across queue boundaries.
 - Every API surface ships a cross-tenant test: same endpoint, second tenant's identifier → 403/404
@@ -277,31 +280,29 @@ one of them can be bypassed, the whole budget story is fiction.
 
 ### X. Test-Gated Definition of Done (NON-NEGOTIABLE)
 
-- xUnit for all backend tests.
+- Vitest for all tests (server and client).
 - Unit tests (Domain/Application, no DB, no network): every invariant, state transition, value
   object, Judge score calculation, budget decision, and pricing computation — including the failure
   paths and the exact error codes.
-- Integration tests for each API surface, using `WebApplicationFactory` against a real Postgres
-  (Testcontainers, or a Neon/Supabase branch DB): status codes, validation, `ProblemDetails`
-  shape, authorization per role, **cross-tenant isolation per endpoint**, secret redaction,
-  idempotent replay, and OpenAPI-contract conformance.
+- Integration tests for each API surface, exercising the Next.js route handlers against a real
+  Postgres (Testcontainers, or a Neon/Supabase branch DB): status codes, validation,
+  `ProblemDetails` shape, authorization per role, **cross-tenant isolation per endpoint**, secret
+  redaction, idempotent replay, and OpenAPI-contract conformance.
 - Webhook tests with fixed HMAC fixtures: valid signature, tampered body, wrong secret, expired
   timestamp, replayed delivery, unknown connection.
-- Next.js: unit tests (Vitest or Jest) for state, permission-driven rendering, and cost formatting;
-  an E2E smoke (Playwright) over the golden path — register → org → project + repo mapping → agents
-  per phase → mock run → timeline → `/approve` via simulator → merge → delivered.
+- UI: unit tests (Vitest + Testing Library) for state, permission-driven rendering, and cost
+  formatting; an E2E smoke (Playwright) over the golden path — register → org → project + repo
+  mapping → agents per phase → mock run → timeline → `/approve` via simulator → merge → delivered.
 - A phase is complete only when all of the following pass locally and in CI with no suppressed
-  warnings: `dotnet build`, `dotnet test`, analyzer/`dotnet format --verify-no-changes`,
-  license scan, `npm run lint` (ESLint), `npm test` (Vitest), `npm run build` (Next.js
-  `next build` with type-checking).
-- EF migrations: additive and reversible by default; any destructive change needs a
-  "Data Migration" section in `plan.md` with a rollback plan; migration names include the spec
-  number.
+  warnings: `npm run lint` (ESLint), `npm test` (Vitest), `npm run build` (Next.js `next build`
+  with type-checking), license scan.
+- Migrations: additive and reversible by default; any destructive change needs a "Data Migration"
+  section in `plan.md` with a rollback plan; migration names include the spec number.
 - Coverage floors: ≥ 90 % lines on rule-bearing Domain code, ≥ 80 % on Application handlers.
   Floors are guides, not goals — the security-relevant rules in Principles V and VI need named
   tests, not percentage.
-- No `[Fact(Skip = ...)]` without a linked issue; no stubbed assertion (`Assert.True(true)`); no
-  test that passes for the wrong reason (each negative test names the code it expects).
+- No skipped tests without a linked issue; no stubbed assertion (`assert(true)`); no test that
+  passes for the wrong reason (each negative test names the code it expects).
 - "Done" for a spec = merged PR + `quickstart.md` steps verified against the running stack +
   constitution compliance confirmed.
 
@@ -351,10 +352,10 @@ lets eleven screens stay consistent while the backend grows.
 
 ## Global Constraints
 
-- **Runtime**: .NET 10 (LTS) with `net10.0`, nullable reference types enabled, warnings-as-errors,
-  implicit usings, analyzers on. Next.js 16+ (App Router) with React 19 and TypeScript
-  `strict: true`.
-- **Data**: PostgreSQL 16+ (Neon, Supabase, or RDS) via EF Core 10 + Npgsql. Snake_case tables
+- **Runtime**: Node 22 LTS and TypeScript `strict: true`; Next.js 16+ (App Router) with React 19
+  handles both the UI and the API in one codebase.
+- **Data**: PostgreSQL 16+ (Neon, Supabase, or RDS) via Prisma (or an equivalent typed OSS ORM)
+  and a native Postgres driver. Snake_case tables
   (plural) and columns; `uuid` primary keys (v7/sequential to avoid index hot spots); composite
   indexes leading with `org_id`; `timestamptz` in UTC; `numeric(18,6)` for money, `numeric(18,10)`
   for per-unit prices, `bigint` for token counts; `jsonb` for hook/agent payloads (already redacted);
@@ -362,32 +363,32 @@ lets eleven screens stay consistent while the backend grows.
 - **API**: REST + JSON, OpenAPI 3.1 generated from code, `/api/v1`, cursor pagination (default 25,
   max 100), `ProblemDetails` (RFC 9457) for all errors with a stable `code`, correlation id in
   every response header. No GraphQL.
-- **AuthN**: ASP.NET Core Identity (or an equivalent free OSS stack) with short-lived JWT access
-  tokens and rotating refresh tokens in `HttpOnly`/`Secure`/`SameSite=Lax` cookies; MFA enforced at
-  org level where the provider supports it; no auth logic in controllers (policies only).
-- **Background work**: Hangfire or a durable `IHostedService` queue over the Postgres outbox — chosen
-  once in `001` and reused. Job bodies MUST be idempotent, tenant-explicit, and cancellable via
-  `CancellationToken` propagated from the trigger.
-- **Observability**: structured JSON logging (Serilog or `Microsoft.Extensions.Logging` +
-  `AddJsonConsole`) with `org_id`, `project_id`, `run_id`, `phase`, `agent`, `correlation_id` on
-  every record; OpenTelemetry traces + metrics for HTTP, EF, hook execution, and every LLM/provider
-  call (span attributes: provider, model, tokens, cost, judge score, status). Metrics include
+- **AuthN**: Auth.js (NextAuth) or an equivalent free OSS stack with short-lived session tokens in
+  `HttpOnly`/`Secure`/`SameSite=Lax` cookies; MFA enforced at org level where the provider
+  supports it; no auth logic in route handlers (policies only).
+- **Background work**: a durable Node worker over the Postgres outbox (LISTEN/NOTIFY or bounded
+  polling) — chosen once in `001` and reused. Job bodies MUST be idempotent, tenant-explicit, and
+  cancellable via an `AbortSignal` propagated from the trigger.
+- **Observability**: structured JSON logging (pino or an equivalent) with `org_id`, `project_id`,
+  `run_id`, `phase`, `agent`, `correlation_id` on every record; OpenTelemetry traces + metrics for
+  HTTP, ORM, hook execution, and every LLM/provider call (span attributes: provider, model,
+  tokens, cost, judge score, status). Metrics include
   `llm_call_duration_seconds`, `llm_cost_per_phase`, `hook_failures_total`, `budget_blocks_total`,
   `webhook_rejected_total`. Secret values, tokens, and full prompts/responses MUST NOT be logged;
   prompt/response bodies are opt-in, size-capped, and redaction-scanned. Retention default 30 days
   for traces, 13 months for ledger rows.
-- **Hosting split**: Next.js builds deploy to Vercel with a same-origin `/api/*` rewrite to the
-  .NET host (only public config in the client env, e.g. API base URL; no secrets, provider keys,
-  or private keys in any client env var). The .NET API and workers run on a real host — locally
-  via Visual Studio dev tunnel / reverse proxy, deployed to a container or app service with
-  TLS 1.2+ and an explicit CORS allow-list. The browser only ever talks same-origin. Postgres
-  stays on the managed provider. The Next.js layer holds no business logic and no server-side
-  secrets — all product logic and credentials live in the .NET host.
+- **Hosting split**: the Next.js app — UI, `/api/*`, and the webhook ingress — deploys to Vercel
+  (or an equivalent Node host) with TLS 1.2+ and an explicit CORS allow-list; the browser only
+  ever talks same-origin. Durable background work (outbox dispatch, hook/agent execution, budget
+  sweeps) runs in the same TypeScript codebase: a Node process locally, and in production a
+  Vercel function/cron or a container per spec `001`'s plan. Postgres stays on the managed
+  provider; the KMS/secret manager holds the KEK. Client components (`"use client"`) MUST NOT
+  import or expose server-side secrets — server-side env vars are the only place product
+  credentials live.
 - **Licensing**: permissive OSS only (MIT/Apache-2.0/BSD/ISC/MPL-2.0); a license scan gate in CI.
-- **Config**: `appsettings.json` + `appsettings.{Dev,Staging,Prod}.json` with no secrets; env vars
-  or KMS-provided values at runtime; `.env`, user-secrets, and connection strings never committed;
-  one `IOptions`-typed config class per subsystem, validated on start (`ValidateOnBuild`), fail
-  fast on missing required settings.
+- **Config**: `process.env` read through one typed config module per subsystem, validated on start
+  (fail fast on missing required settings); `.env` files, user secrets, and connection strings
+  never committed; no secret may appear in any client-visible config.
 - **Performance budget**: non-LLM read endpoints p95 < 300 ms at 10 k rows/tenant; webhook ingress
   acknowledges within 5 s by enqueueing work rather than doing it inline; agent phases run off the
   request path.
@@ -413,7 +414,7 @@ lets eleven screens stay consistent while the backend grows.
   provider integrations, anything touching Principles V/VI/IX, and any deviation from the design
   guideline require it.
 - **Review checklist for every PR**: dependency direction (II) · aggregate ownership of the
-  invariant (III) · controller single-line (IV) · tenant filter + cross-tenant test (V) · no secret
+  invariant (III) · route handler single-line (IV) · tenant filter + cross-tenant test (V) · no secret
   in logs/responses (VI) · no approval path outside webhook ingress (VII) · capability checks before
   provider calls (VIII) · metering + timeline event emitted (IX) · tests green and named after the
   rule (X) · tokens/states/a11y (XI).
@@ -459,8 +460,8 @@ are **development-time defaults**, not frozen product configuration — where a 
 tenant or project may legitimately choose, the owning spec documents the configuration and this list
 only fixes the starting default and its safe bounds.
 
-1. CQRS is in-process command/query dispatch with one handler per request; MediatR-style free
-   packages are allowed, a mediator framework is not required. No event sourcing, no external bus.
+1. CQRS is in-process command/query dispatch with one handler per request; a lightweight free
+   dispatcher library is allowed, a framework is not required. No event sourcing, no external bus.
 2. Domain events are persisted to a Postgres outbox and dispatched by the worker; delivery is
    at-least-once, so consumers are idempotent.
 3. Tenant resolution precedence: webhook connection → project id → membership claim from the token.
@@ -475,9 +476,9 @@ only fixes the starting default and its safe bounds.
    production, not test-only fixtures — they back the demo path and the pricing/behaviour tests.
 8. Verified-ingress defaults for the first build: 300 s replay window, delivery ids unique per
    connection forever (not per day). `specs/009-*` owns the protocol and may restate either value.
-9. The Next.js client consumes generated OpenAPI clients; hand-written service modules are the
-   exception and need a reason in `plan.md`.
+9. The UI calls the API through one shared typed client module derived from the contract types;
+   hand-written per-route fetch logic is the exception and needs a reason in `plan.md`.
 10. `Public/Desgin/index.html` stays at its current path and remains the single design reference;
-    implementation-specific tokens live in `client/agentix-web` styles, not in new mock files.
+    implementation-specific tokens live in the Next.js app's styles, not in new mock files.
 
-**Version**: 1.2.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-12
+**Version**: 2.0.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-12
