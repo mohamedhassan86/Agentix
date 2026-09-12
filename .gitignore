@@ -1,10 +1,10 @@
 # ---------------------------------------------------------------------------
-# Agentix — .NET 10 + Angular 22+ + PostgreSQL
+# Agentix — Node 22 + Next.js 16 + PostgreSQL
 # Committed: source, specs/, .specify/ (templates, scripts, memory), config.
 # Never committed: build output, secrets, machine-local state, third-party deps.
 # ---------------------------------------------------------------------------
 
-# --- Build output / intermediates (.NET) ---
+# --- Build output / intermediates (.NET legacy) ---
 [Bb]in/
 [Oo]bj/
 artifacts/
@@ -61,11 +61,14 @@ id_rsa*
 gha_token*
 local-configuration/**/secrets.json
 
-# --- Node / Angular ---
+# --- Node / Next.js ---
 node_modules/
 .angular/
 dist/
 tmp/
+out/
+.next/
+coverage/
 out-tsc/
 eslintcache
 .npm/
@@ -79,6 +82,9 @@ pnpm-debug.log*
 lerna-debug.log*
 ng-src/**/*.ngfactory.ts
 .stylelintrc.cache
+# Prisma generated client
+src/generated/
+prisma/generated/
 
 # --- Vercel ---
 .vercel/

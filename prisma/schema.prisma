@@ -1,0 +1,22 @@
+// Prisma schema - Phase 1 placeholder
+// Real tables will be added in Phase 2 (T014)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Placeholder model to allow prisma validate/generate in Phase 1
+// Will be replaced by outbox_messages etc in Phase 2
+model _Placeholder {
+  id String @id @default(uuid())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("_placeholder")
+}
