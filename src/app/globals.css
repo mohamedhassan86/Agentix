@@ -36,8 +36,8 @@ p{margin:0}
   .card{padding:12px}
   .btn{width:100%}
 }
-@media (min-width: 200%){
-  /* 200% zoom support - ensure no horizontal loss */
-  body{min-width:320px;overflow-x:auto}
-  .card{max-width:100%;word-wrap:break-word}
-}
+/* Zoom/narrow guard (FR-033): media queries cannot detect browser zoom, so these are
+   unconditional. They are inert at normal sizes and only engage when the effective
+   viewport shrinks (200% zoom, very narrow screens) to prevent horizontal loss. */
+body{min-width:320px;overflow-x:auto}
+.card{max-width:100%;word-wrap:break-word}

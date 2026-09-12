@@ -62,6 +62,18 @@ describe("canonical design tokens", () => {
     expect(css).toMatch(/transition:none/);
   });
 
+  it("media queries use valid units and the zoom guard is unconditional", () => {
+    const css = readFileSync("src/app/globals.css", "utf-8");
+    // Percentages are invalid in media queries - browsers discard such blocks entirely
+    for (const m of css.match(/@media[^{]+/g) ?? []) {
+      expect(m, `invalid media query: ${m}`).not.toMatch(/(min|max)-width:\s*\d+%/);
+    }
+    // Zoom cannot be detected via media query, so the FR-033 no-horizontal-loss
+    // guard must live outside any media query to take effect at 200% zoom
+    expect(css).toMatch(/body\{min-width:320px;overflow-x:auto\}/);
+    expect(css).toMatch(/\.card\{max-width:100%;word-wrap:break-word\}/);
+  });
+
   it("no external font request at runtime", () => {
     const css = readFileSync("src/app/globals.css", "utf-8");
     const layout = readFileSync("src/app/layout.tsx", "utf-8");
