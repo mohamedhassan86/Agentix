@@ -12,6 +12,7 @@ export interface AppConfig {
   app: {
     origin: string | null;
     corsOrigins: string[];
+    env: "development" | "production" | "test";
   };
   worker: {
     pollIntervalMs: number;
@@ -151,6 +152,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     app: {
       origin: (parsed.data.app.origin as string) ?? null,
       corsOrigins: parsed.data.app.corsOrigins,
+      env: (isProduction ? "production" : nodeEnv === "test" ? "test" : "development") as any,
     },
     worker: {
       pollIntervalMs: parsed.data.worker.pollIntervalMs,

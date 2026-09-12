@@ -35,6 +35,18 @@ export interface WorkEnvelopeOptions {
   maxAttempts?: number;
 }
 
+const SENSITIVE_PAYLOAD_KEYS = ["password", "secret", "token", "authorization", "cookie", "key", "credential"];
+
+function containsSensitiveKeys(payload: Record<string, unknown>): string | null {
+  for (const k of Object.keys(payload)) {
+    const lower = k.toLowerCase();
+    if (SENSITIVE_PAYLOAD_KEYS.some((s) => lower.includes(s))) {
+      return k;
+    }
+  }
+  return null;
+}
+
 export function validateWorkEnvelope(options: WorkEnvelopeOptions): WorkEnvelope {
   if (!options.type || options.type.length < 1 || options.type.length > 120) {
     throw new Error("work type must be 1-120 characters");
@@ -57,9 +69,22 @@ export function validateWorkEnvelope(options: WorkEnvelopeOptions): WorkEnvelope
   if (options.maxAttempts !== undefined && (options.maxAttempts < 1 || options.maxAttempts > 10)) {
     throw new Error("maxAttempts must be 1-10");
   }
+
+  const sensitiveKey = containsSensitiveKeys(options.payload);
+  if (sensitiveKey) {
+    throw new Error(`payload contains sensitive key: ${sensitiveKey}`);
+  }
+
   const payloadSize = JSON.stringify(options.payload).length;
   if (payloadSize > 64 * 1024) {
     throw new Error("payload exceeds 64 KiB");
+  }
+
+  if (options.traceParent && options.traceParent.length > 55) {
+    throw new Error("traceParent exceeds 55 chars");
+  }
+  if (options.traceState && options.traceState.length > 512) {
+    throw new Error("traceState exceeds 512 chars");
   }
 
   return {
