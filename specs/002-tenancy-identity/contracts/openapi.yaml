@@ -1,0 +1,780 @@
+openapi: 3.1.0
+info:
+  title: Agentix Tenancy & Identity API
+  version: 0.1.0
+  description: >-
+    Contract for spec 002. Member-scoped organization operations resolve the active
+    organization from the server session; they never accept an organization override.
+servers:
+  - url: /
+tags:
+  - name: Authentication
+  - name: Account
+  - name: Session
+  - name: Organizations
+  - name: Members
+  - name: Invitations
+  - name: Platform inspection
+security:
+  - sessionCookie: []
+paths:
+  /api/v1/auth/register:
+    post:
+      tags: [Authentication]
+      operationId: registerAccount
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterRequest'}
+      responses:
+        '201':
+          description: Account registered; verification message queued. No token is returned.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RegisterResult'}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+        '409': {$ref: '#/components/responses/RegistrationProblem'}
+  /api/v1/auth/sign-in:
+    post:
+      tags: [Authentication]
+      operationId: signIn
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SignInRequest'}
+      responses:
+        '200':
+          description: Signed in with no active organization.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+            Set-Cookie:
+              description: Opaque secure session cookie; attributes include HttpOnly, Secure, SameSite=Lax.
+              schema: {type: string, writeOnly: true}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionContext'}
+        '401': {$ref: '#/components/responses/AuthenticationProblem'}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+  /api/v1/auth/sign-out:
+    post:
+      tags: [Authentication]
+      operationId: signOut
+      responses:
+        '204': {description: Session revoked}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+  /api/v1/auth/verify-email:
+    post:
+      tags: [Authentication]
+      operationId: verifyEmail
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OneTimeTokenRequest'}
+      responses:
+        '200':
+          description: Verification completed or account was already verified.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VerificationResult'}
+        '400': {$ref: '#/components/responses/TokenProblem'}
+  /api/v1/auth/verification-messages:
+    post:
+      tags: [Authentication]
+      operationId: resendVerification
+      responses:
+        '202':
+          description: A new verification message is queued when applicable; no token is returned.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageQueuedResult'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+        '409': {$ref: '#/components/responses/ConflictProblem'}
+  /api/v1/account:
+    get:
+      tags: [Account]
+      operationId: getCurrentAccount
+      responses:
+        '200':
+          description: Current account profile
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Account'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+    delete:
+      tags: [Account]
+      operationId: deleteCurrentAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeleteAccountRequest'}
+      responses:
+        '204': {description: Account logically deleted and sessions revoked}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+        '409': {$ref: '#/components/responses/OwnerInvariantProblem'}
+  /api/v1/session:
+    get:
+      tags: [Session]
+      operationId: getSessionContext
+      responses:
+        '200':
+          description: Server-resolved current session context
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionContext'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+  /api/v1/session/active-organization:
+    put:
+      tags: [Session]
+      operationId: switchActiveOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SwitchOrganizationRequest'}
+      responses:
+        '200':
+          description: Active organization changed and current role resolved.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionContext'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+        '403': {$ref: '#/components/responses/FormerMemberProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+  /api/v1/organizations:
+    get:
+      tags: [Organizations]
+      operationId: listMyOrganizations
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Current user's active memberships only.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationPage'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+    post:
+      tags: [Organizations]
+      operationId: createOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateOrganizationRequest'}
+      responses:
+        '201':
+          description: Organization created; creator is Owner and organization becomes active.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationProfile'}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '409': {$ref: '#/components/responses/SlugConflictProblem'}
+  /api/v1/organizations/slug-suggestion:
+    get:
+      tags: [Organizations]
+      operationId: suggestOrganizationSlug
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 120}
+      responses:
+        '200':
+          description: A syntactically valid suggestion; availability is not reserved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [slug]
+                properties:
+                  slug: {$ref: '#/components/schemas/OrganizationSlug'}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+  /api/v1/organization:
+    get:
+      tags: [Organizations]
+      operationId: getActiveOrganization
+      responses:
+        '200':
+          description: Active organization profile
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationProfile'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+        '403': {$ref: '#/components/responses/NoActiveOrganizationProblem'}
+    patch:
+      tags: [Organizations]
+      operationId: updateActiveOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateOrganizationRequest'}
+      responses:
+        '200':
+          description: Updated by current Owner
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationProfile'}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '409': {$ref: '#/components/responses/SlugConflictProblem'}
+    delete:
+      tags: [Organizations]
+      operationId: deleteActiveOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeleteOrganizationRequest'}
+      responses:
+        '204': {description: Organization logically deleted; active organization cleared}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+  /api/v1/organization/members:
+    get:
+      tags: [Members]
+      operationId: listActiveOrganizationMembers
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Tenant-scoped active member page
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemberPage'}
+        '403': {$ref: '#/components/responses/NoActiveOrganizationProblem'}
+  /api/v1/organization/members/{memberId}:
+    patch:
+      tags: [Members]
+      operationId: changeMemberRole
+      parameters:
+        - {$ref: '#/components/parameters/MemberId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangeRoleRequest'}
+      responses:
+        '200':
+          description: Non-Owner member role changed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Member'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+        '409': {$ref: '#/components/responses/OwnerInvariantProblem'}
+    delete:
+      tags: [Members]
+      operationId: removeMember
+      parameters:
+        - {$ref: '#/components/parameters/MemberId'}
+      responses:
+        '204': {description: Non-Owner membership ended}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+        '409': {$ref: '#/components/responses/OwnerInvariantProblem'}
+  /api/v1/organization/membership:
+    delete:
+      tags: [Members]
+      operationId: leaveActiveOrganization
+      responses:
+        '204': {description: Caller left and active organization was cleared}
+        '403': {$ref: '#/components/responses/NoActiveOrganizationProblem'}
+        '409': {$ref: '#/components/responses/OwnerInvariantProblem'}
+  /api/v1/organization/ownership:
+    put:
+      tags: [Members]
+      operationId: transferOwnership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TransferOwnershipRequest'}
+      responses:
+        '200':
+          description: New Owner and former Owner/Admin memberships
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OwnershipTransferResult'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+        '409': {$ref: '#/components/responses/OwnerInvariantProblem'}
+  /api/v1/organization/invitations:
+    get:
+      tags: [Invitations]
+      operationId: listInvitations
+      parameters:
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Invitation page for Owner/Admin
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvitationPage'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+    post:
+      tags: [Invitations]
+      operationId: createInvitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateInvitationRequest'}
+      responses:
+        '201':
+          description: Pending invitation created and delivery queued; no token is returned.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Invitation'}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '409': {$ref: '#/components/responses/InvitationConflictProblem'}
+  /api/v1/organization/invitations/{invitationId}/resend:
+    post:
+      tags: [Invitations]
+      operationId: resendInvitation
+      parameters:
+        - {$ref: '#/components/parameters/InvitationId'}
+      responses:
+        '202':
+          description: New token version and seven-day window queued; no token is returned.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Invitation'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+        '409': {$ref: '#/components/responses/InvitationStateProblem'}
+  /api/v1/organization/invitations/{invitationId}/revoke:
+    post:
+      tags: [Invitations]
+      operationId: revokeInvitation
+      parameters:
+        - {$ref: '#/components/parameters/InvitationId'}
+      responses:
+        '200':
+          description: Invitation revoked
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Invitation'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+        '409': {$ref: '#/components/responses/InvitationStateProblem'}
+  /api/v1/invitations/{invitationId}:
+    get:
+      tags: [Invitations]
+      operationId: previewInvitation
+      security: []
+      parameters:
+        - {$ref: '#/components/parameters/InvitationId'}
+        - {$ref: '#/components/parameters/OneTimeToken'}
+      responses:
+        '200':
+          description: Minimal invitation preview; does not expose tenant membership data.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvitationPreview'}
+        '400': {$ref: '#/components/responses/TokenProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+  /api/v1/invitations/{invitationId}/accept:
+    post:
+      tags: [Invitations]
+      operationId: acceptInvitation
+      parameters:
+        - {$ref: '#/components/parameters/InvitationId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OneTimeTokenRequest'}
+      responses:
+        '200':
+          description: Invitation accepted; active organization remains unchanged.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvitationAcceptanceResult'}
+        '400': {$ref: '#/components/responses/TokenProblem'}
+        '401': {$ref: '#/components/responses/AuthenticationRequired'}
+        '403': {$ref: '#/components/responses/InvitationEmailProblem'}
+        '409': {$ref: '#/components/responses/InvitationStateProblem'}
+  /api/v1/platform/organizations/{organizationId}:
+    get:
+      tags: [Platform inspection]
+      operationId: inspectOrganization
+      parameters:
+        - {$ref: '#/components/parameters/OrganizationId'}
+      responses:
+        '200':
+          description: Read-only identity profile for platform administrator
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationProfile'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+  /api/v1/platform/organizations/{organizationId}/members:
+    get:
+      tags: [Platform inspection]
+      operationId: inspectOrganizationMembers
+      parameters:
+        - {$ref: '#/components/parameters/OrganizationId'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Read-only member page for platform administrator
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MemberPage'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+  /api/v1/platform/organizations/{organizationId}/invitations:
+    get:
+      tags: [Platform inspection]
+      operationId: inspectOrganizationInvitations
+      parameters:
+        - {$ref: '#/components/parameters/OrganizationId'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: Read-only invitation page for platform administrator
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvitationPage'}
+        '403': {$ref: '#/components/responses/PermissionProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Secure-agentix.session-token
+  headers:
+    XCorrelationId:
+      description: Request correlation identifier
+      schema: {type: string, format: uuid}
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: {type: string, minLength: 1}
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+    OrganizationId:
+      name: organizationId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    MemberId:
+      name: memberId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    InvitationId:
+      name: invitationId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    OneTimeToken:
+      name: token
+      in: query
+      required: true
+      description: Write-only bearer value from issued message; MUST be redacted from access logs.
+      schema: {type: string, minLength: 40, writeOnly: true}
+  schemas:
+    Email:
+      type: string
+      format: email
+      maxLength: 254
+    OrganizationSlug:
+      type: string
+      minLength: 3
+      maxLength: 48
+      pattern: '^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$'
+    Role:
+      type: string
+      enum: [viewer, member, admin, owner]
+    InvitableRole:
+      type: string
+      enum: [viewer, member, admin]
+    InvitationStatus:
+      type: string
+      enum: [pending, accepted, expired, revoked]
+    DeliveryState:
+      type: string
+      enum: [queued, sent, failed]
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, password]
+      properties:
+        email: {$ref: '#/components/schemas/Email'}
+        displayName: {type: string, minLength: 1, maxLength: 120}
+        password: {type: string, minLength: 8, maxLength: 1024, writeOnly: true}
+    RegisterResult:
+      type: object
+      required: [account, verificationMessageQueued]
+      properties:
+        account: {$ref: '#/components/schemas/Account'}
+        verificationMessageQueued: {type: boolean, const: true}
+    SignInRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: {$ref: '#/components/schemas/Email'}
+        password: {type: string, minLength: 1, maxLength: 1024, writeOnly: true}
+    Account:
+      type: object
+      required: [id, email, displayName, emailVerified, platformAdministrator, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        email: {$ref: '#/components/schemas/Email'}
+        displayName: {type: string}
+        emailVerified: {type: boolean}
+        platformAdministrator: {type: boolean}
+        createdAt: {type: string, format: date-time}
+    OneTimeTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: {type: string, minLength: 40, writeOnly: true}
+    VerificationResult:
+      type: object
+      required: [status]
+      properties:
+        status: {type: string, enum: [verified, already_verified]}
+    MessageQueuedResult:
+      type: object
+      required: [queued]
+      properties:
+        queued: {type: boolean, const: true}
+    DeleteAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation: {type: string, const: DELETE}
+    SessionContext:
+      type: object
+      required: [userId, activeOrganizationId, activeRole, platformAdministrator]
+      properties:
+        userId: {type: string, format: uuid}
+        activeOrganizationId: {type: [string, 'null'], format: uuid}
+        activeRole:
+          oneOf:
+            - {$ref: '#/components/schemas/Role'}
+            - {type: 'null'}
+        platformAdministrator: {type: boolean}
+    SwitchOrganizationRequest:
+      type: object
+      additionalProperties: false
+      required: [organizationId]
+      properties:
+        organizationId: {type: string, format: uuid}
+    CreateOrganizationRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        slug: {$ref: '#/components/schemas/OrganizationSlug'}
+    UpdateOrganizationRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        slug: {$ref: '#/components/schemas/OrganizationSlug'}
+    DeleteOrganizationRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmationSlug]
+      properties:
+        confirmationSlug: {$ref: '#/components/schemas/OrganizationSlug'}
+    OrganizationProfile:
+      type: object
+      required: [id, name, slug, currentRole, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        slug: {$ref: '#/components/schemas/OrganizationSlug'}
+        currentRole:
+          oneOf:
+            - {$ref: '#/components/schemas/Role'}
+            - {type: 'null', description: Null only on platform inspection}
+        createdAt: {type: string, format: date-time}
+    OrganizationSwitcherItem:
+      $ref: '#/components/schemas/OrganizationProfile'
+    OrganizationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/OrganizationSwitcherItem'}}
+        nextCursor: {type: [string, 'null']}
+    Member:
+      type: object
+      required: [id, userId, displayName, email, role, joinedAt]
+      properties:
+        id: {type: string, format: uuid}
+        userId: {type: string, format: uuid}
+        displayName: {type: string}
+        email: {$ref: '#/components/schemas/Email'}
+        role: {$ref: '#/components/schemas/Role'}
+        joinedAt: {type: string, format: date-time}
+    MemberPage:
+      type: object
+      required: [items, roleCounts, nextCursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Member'}}
+        roleCounts:
+          type: object
+          required: [viewer, member, admin, owner]
+          properties:
+            viewer: {type: integer, minimum: 0}
+            member: {type: integer, minimum: 0}
+            admin: {type: integer, minimum: 0}
+            owner: {type: integer, const: 1}
+        nextCursor: {type: [string, 'null']}
+    ChangeRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role: {$ref: '#/components/schemas/InvitableRole'}
+    TransferOwnershipRequest:
+      type: object
+      additionalProperties: false
+      required: [targetMemberId, confirmation]
+      properties:
+        targetMemberId: {type: string, format: uuid}
+        confirmation: {type: string, const: TRANSFER}
+    OwnershipTransferResult:
+      type: object
+      required: [owner, formerOwner]
+      properties:
+        owner: {$ref: '#/components/schemas/Member'}
+        formerOwner: {$ref: '#/components/schemas/Member'}
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [email, role]
+      properties:
+        email: {$ref: '#/components/schemas/Email'}
+        role: {$ref: '#/components/schemas/InvitableRole'}
+    Invitation:
+      type: object
+      required: [id, email, role, status, deliveryState, createdAt, expiresAt, ageSeconds]
+      properties:
+        id: {type: string, format: uuid}
+        email: {$ref: '#/components/schemas/Email'}
+        role: {$ref: '#/components/schemas/InvitableRole'}
+        status: {$ref: '#/components/schemas/InvitationStatus'}
+        deliveryState: {$ref: '#/components/schemas/DeliveryState'}
+        createdAt: {type: string, format: date-time}
+        expiresAt: {type: string, format: date-time}
+        ageSeconds: {type: integer, minimum: 0}
+    InvitationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Invitation'}}
+        nextCursor: {type: [string, 'null']}
+    InvitationPreview:
+      type: object
+      required: [invitationId, organizationName, invitedEmail, role, status, expiresAt, accountRequired]
+      properties:
+        invitationId: {type: string, format: uuid}
+        organizationName: {type: string}
+        invitedEmail: {$ref: '#/components/schemas/Email'}
+        role: {$ref: '#/components/schemas/InvitableRole'}
+        status: {$ref: '#/components/schemas/InvitationStatus'}
+        expiresAt: {type: string, format: date-time}
+        accountRequired: {type: boolean}
+    InvitationAcceptanceResult:
+      type: object
+      required: [membership, activeOrganizationChanged]
+      properties:
+        membership: {$ref: '#/components/schemas/Member'}
+        activeOrganizationChanged: {type: boolean, const: false}
+    Problem:
+      type: object
+      required: [type, title, status, code, correlationId]
+      properties:
+        type: {type: string, format: uri}
+        title: {type: string}
+        status: {type: integer, minimum: 400, maximum: 599}
+        detail: {type: string}
+        instance: {type: string}
+        code: {type: string}
+        correlationId: {type: string, format: uuid}
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: {type: string}
+  responses:
+    ValidationProblem:
+      description: Request validation failed
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    AuthenticationRequired:
+      description: Authentication required or session expired
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    AuthenticationProblem:
+      description: Generic invalid credentials response, including a locked identifier
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    RegistrationProblem:
+      description: Generic registration failure; does not confirm account existence
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    PermissionProblem:
+      description: Authenticated but current policy denies the operation
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    NoActiveOrganizationProblem:
+      description: No active organization or active membership ended
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    FormerMemberProblem:
+      description: Caller previously belonged to target and now has explicit no access
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    NotFoundProblem:
+      description: Resource absent or foreign with no prior membership; response is indistinguishable
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    ConflictProblem:
+      description: Domain state conflict
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    SlugConflictProblem:
+      description: Organization slug is reserved
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    InvitationConflictProblem:
+      description: Existing member, platform administrator, or duplicate pending invitation
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    InvitationStateProblem:
+      description: Invitation state does not permit requested transition
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    InvitationEmailProblem:
+      description: Signed-in account email does not match invitation
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    TokenProblem:
+      description: Token invalid, expired, revoked, consumed, or wrong purpose
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    OwnerInvariantProblem:
+      description: Operation would violate sole Owner or concurrent ownership rule
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}

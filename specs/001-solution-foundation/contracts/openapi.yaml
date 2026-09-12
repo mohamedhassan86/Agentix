@@ -1,0 +1,254 @@
+openapi: 3.1.0
+info:
+  title: Agentix Foundation API
+  version: 0.1.0
+  description: >-
+    Foundation-only contract for health, versioned ping, and non-business
+    demonstration work. Every response carries X-Correlation-Id. Demonstration
+    work is disabled by default in production.
+servers:
+  - url: /
+tags:
+  - name: Health
+    description: Process liveness and dependency readiness.
+  - name: Foundation
+    description: Versioned ping and non-business foundation validation operations.
+security: []
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Check web-process liveness
+      responses:
+        '200':
+          description: Process can answer requests.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HealthResponse'}
+        '403': {$ref: '#/components/responses/CorsProblem'}
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Check required dependency readiness
+      responses:
+        '200':
+          description: Required database and schema are ready.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HealthResponse'}
+        '503':
+          description: A required dependency category is unavailable or schema is not current.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/ReadinessProblem'}
+        '403': {$ref: '#/components/responses/CorsProblem'}
+  /api/v1/ping:
+    get:
+      tags: [Foundation]
+      operationId: getPing
+      summary: Exercise versioned query dispatch
+      responses:
+        '200':
+          description: Foundation is responsive.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PingResponse'}
+        '403': {$ref: '#/components/responses/CorsProblem'}
+        '500': {$ref: '#/components/responses/UnexpectedProblem'}
+  /api/v1/foundation/work:
+    post:
+      tags: [Foundation]
+      operationId: createFoundationWork
+      summary: Enqueue non-business demonstration work atomically
+      description: >-
+        Available in local, test, and enabled review environments. Production
+        returns the same 404 shape as an absent route unless explicitly enabled.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 200}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              maxProperties: 0
+      responses:
+        '202':
+          description: First request created and work queued.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+            Location:
+              description: Same-origin status resource.
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FoundationWorkResponse'}
+        '200':
+          description: Existing request returned for a repeated idempotency key.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FoundationWorkResponse'}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+        '503': {$ref: '#/components/responses/UnavailableProblem'}
+        '500': {$ref: '#/components/responses/UnexpectedProblem'}
+  /api/v1/foundation/work/{requestId}:
+    get:
+      tags: [Foundation]
+      operationId: getFoundationWork
+      summary: Read demonstration work status
+      description: Subject to the same environment availability as work creation.
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current safe work projection.
+          headers:
+            X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+            Cache-Control: {$ref: '#/components/headers/NoStore'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FoundationWorkResponse'}
+        '400': {$ref: '#/components/responses/ValidationProblem'}
+        '404': {$ref: '#/components/responses/NotFoundProblem'}
+        '500': {$ref: '#/components/responses/UnexpectedProblem'}
+components:
+  headers:
+    XCorrelationId:
+      description: Canonical request correlation UUID; valid caller value is propagated, otherwise generated.
+      required: true
+      schema: {type: string, format: uuid}
+    NoStore:
+      description: Health/status output is not cached.
+      required: true
+      schema: {type: string, const: no-store}
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, service, version, time]
+      properties:
+        status: {type: string, enum: [alive, ready]}
+        service: {type: string, const: agentix-web}
+        version: {type: string, minLength: 1, maxLength: 50}
+        time: {type: string, format: date-time}
+    PingResponse:
+      type: object
+      additionalProperties: false
+      required: [status, service, version, time]
+      properties:
+        status: {type: string, const: ok}
+        service: {type: string, const: agentix}
+        version: {type: string, minLength: 1, maxLength: 50}
+        time: {type: string, format: date-time}
+    FoundationWorkStatus:
+      type: string
+      enum: [queued, processing, succeeded, failed]
+    FoundationWorkResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+        - workId
+        - status
+        - attemptCount
+        - effectCount
+        - requestedAt
+      properties:
+        requestId: {type: string, format: uuid}
+        workId: {type: string, format: uuid}
+        status: {$ref: '#/components/schemas/FoundationWorkStatus'}
+        attemptCount: {type: integer, minimum: 0, maximum: 10}
+        effectCount: {type: integer, minimum: 0, maximum: 1}
+        requestedAt: {type: string, format: date-time}
+        completedAt:
+          oneOf:
+            - {type: string, format: date-time}
+            - {type: 'null'}
+        lastErrorCode:
+          oneOf:
+            - {type: string, minLength: 1, maxLength: 120}
+            - {type: 'null'}
+    Problem:
+      type: object
+      additionalProperties: true
+      required: [type, title, status, code, correlationId]
+      properties:
+        type: {type: string, format: uri}
+        title: {type: string, minLength: 1}
+        status: {type: integer, minimum: 400, maximum: 599}
+        detail: {type: string}
+        instance: {type: string}
+        code: {type: string, pattern: '^[A-Z][A-Z0-9_]{1,119}$'}
+        correlationId: {type: string, format: uuid}
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: {type: string}
+    ReadinessProblem:
+      allOf:
+        - {$ref: '#/components/schemas/Problem'}
+        - type: object
+          required: [dependency]
+          properties:
+            dependency: {type: string, enum: [database, schema]}
+  responses:
+    CorsProblem:
+      description: Request origin is not in the explicit allow-list.
+      headers:
+        X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    ValidationProblem:
+      description: Request validation failed without echoing sensitive input.
+      headers:
+        X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    NotFoundProblem:
+      description: Foundation resource or environment-disabled route was not found.
+      headers:
+        X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    UnavailableProblem:
+      description: Required persistence is temporarily unavailable.
+      headers:
+        X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    UnexpectedProblem:
+      description: Safe generic unexpected error; no stack, input, or secret detail.
+      headers:
+        X-Correlation-Id: {$ref: '#/components/headers/XCorrelationId'}
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
