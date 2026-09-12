@@ -82,8 +82,11 @@ pnpm-debug.log*
 lerna-debug.log*
 ng-src/**/*.ngfactory.ts
 .stylelintrc.cache
-# Prisma generated client
-src/generated/
+# Prisma generated client - ignore everything except stub fallback for CI
+src/generated/*
+!src/generated/prisma/
+src/generated/prisma/*
+!src/generated/prisma/client.ts
 prisma/generated/
 
 # --- Vercel ---
