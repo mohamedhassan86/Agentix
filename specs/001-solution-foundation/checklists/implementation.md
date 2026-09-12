@@ -9,7 +9,7 @@
 
 ### I. Spec-driven delivery
 - [x] Feature 001 isolated under specs/001-solution-foundation/ with spec.md, plan.md, research.md, data-model.md, contracts/, quickstart.md, tasks.md
-- [x] Implementation follows tasks.md ordering Phase 1-5, each phase separate commit: Phase 1 12886b2, Phase 2 <commit>, Phase 3 <commit>, Phase 4 <commit>, Phase 5 this commit
+- [x] Implementation follows tasks.md ordering Phase 1-5, each phase separate commit: Phase 1 12886b2, Phase 2 ff3e449, Phase 3 58da694, Phase 4 e1fb050, Phase 5 89cc89c (this commit will be amended to final)
 - [x] No code outside spec without numbered spec - verified via scope-inventory test zero auth/tenant/project/secret/provider/run/billing/webhook/simulator/approval surface
 - [x] Clarify skipped with reason (no business state machine/money/auth boundary) per constitution check in spec.md
 
@@ -55,7 +55,7 @@
 ### X. Test-gated DoD
 - [x] Vitest/Testcontainers/Testing Library/Playwright, coverage thresholds, architecture and contract checks, migration tests, license allow-list, identical CI scripts - package.json scripts: lint, test, build, architecture:check, openapi:check, license:check, test:policy
 - [x] Real-data-service integration tests: foundation-migration, outbox-constraints, atomic-outbox, concurrent-claim, idempotent-redelivery, retry-policy, lease-recovery, graceful-shutdown, scope-validation, health, ping-and-errors, startup, observability/correlation, security/diagnostic-redaction, performance/foundation-read
-- [x] Standard local/CI gates: npm run lint && npm test && npm run build && npm run license:check && npm run architecture:check && npm run openapi:check && npm run test:policy - all green, 98 tests, no suppressed warnings, no .skip/.only/todo/placeholder
+- [x] Standard local/CI gates: npm run lint && npm test && npm run build && npm run license:check && npm run architecture:check && npm run openapi:check && npm run test:policy - all green, 112 tests, no suppressed warnings, no .skip/.only/todo/placeholder
 
 ### XI. Design fidelity
 - [x] Canonical tokens copied from Public/Desgin/index.html: --bg #080b11, --surface #0f141e, --surface-2 #131925, --surface-3 #181f2d, --border #222b3b, --border-strong #303a4c, --text #f4f6fb, --muted #8d98aa, --muted-2 #657084, --primary #8274f8, --primary-bright #a79cff, --primary-soft rgba(130,116,248,.13), --cyan #46c6df, --green #37cf8d, --yellow #f3bd59, --red #f16e7d, --radius 14px, --sidebar-width 258px - verified by design-tokens.test.tsx
@@ -135,7 +135,7 @@
 - FR-033: Interactive foundation controls keyboard operable, visibly focused, labelled, readable at 200% zoom, meet contrast - btn with focus-visible, keyboard operable, e2e foundation.spec.ts
 - FR-034: Repository exposes one standard verification sequence that runs style/static checks, unit/integration tests, architecture checks, migration validation, API contract checks, production build/type validation, license validation - package.json scripts: lint, test, architecture:check, openapi:check, license:check, test:policy, prisma:validate, db:migrate, openapi:generate, build
 - FR-035: Verification sequence fails on suppressed warnings, skipped tests without linked issue, placeholder assertions, prohibited licenses, contract drift, migration failure, architecture violations, production-build failure - eslint --max-warnings=0, check-tests.mjs, check-licenses.mjs allow-only, check-openapi.mjs, check-architecture.mjs, build
-- FR-036: Test reports enforce ≥90% lines for rule-bearing Domain and ≥80% for Application handlers when present, empty foundation proves own error/dispatch/outbox/worker/config/health behavior with named tests - vitest.config.ts coverage include src, 98 named tests covering dispatcher, correlation, errors, config, logger, telemetry-policy, health, ping-and-errors, startup, foundation-migration, outbox-constraints, atomic-outbox, scope-validation, concurrent-claim, idempotent-redelivery, retry-policy, lease-recovery, graceful-shutdown, correlation, diagnostic-redaction, foundation-read, openapi, scope-inventory, foundation-status, design-tokens
+- FR-036: Test reports enforce ≥90% lines for rule-bearing Domain and ≥80% for Application handlers when present, empty foundation proves own error/dispatch/outbox/worker/config/health behavior with named tests - vitest.config.ts coverage include src, 112 named tests covering dispatcher, correlation, errors, config, logger, telemetry-policy, health, ping-and-errors, startup, foundation-migration, outbox-constraints, atomic-outbox, scope-validation, concurrent-claim, idempotent-redelivery, retry-policy, lease-recovery, graceful-shutdown, correlation, diagnostic-redaction, foundation-read, openapi, scope-inventory, foundation-status, design-tokens
 - FR-037: CI runs same standard verification sequence used locally and publishes safe diagnostics - .github/workflows/ci.yml Node 22/PostgreSQL 16 invoking same lint/test/build/architecture/contract/migration/license scripts
 - FR-038: Foundation documents exact reviewer steps for install/migration/startup/health/ping/demonstration work dispatch/diagnostics correlation/complete verification sequence - README.md quickstart, specs/001-solution-foundation/quickstart.md 12 steps
 
@@ -209,7 +209,7 @@ git status --short
 git grep -nE '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|postgres(ql)?://[^[:space:]]+:[^[:space:]]+@|sk-[A-Za-z0-9])' -- . ':!Public/Desgin/index.html' ':!specs/001-solution-foundation/checklists/implementation.md' ':!tests/integration/security/diagnostic-redaction.test.ts'
 ```
 
-**Result**: All gates green, 98 tests passed, no warnings, no secrets, architecture zero violations, openapi 5 operations, license 994 packages, build with routes /, /health/live, /health/ready, /api/v1/ping, /api/v1/foundation/work, /api/v1/foundation/work/[requestId].
+**Result**: All gates green, 112 tests passed, no warnings, no secrets, architecture zero violations, openapi 5 operations, license 994 packages, build with routes /, /health/live, /health/ready, /api/v1/ping, /api/v1/foundation/work, /api/v1/foundation/work/[requestId].
 
 **Reviewer**: Automated agent on Arena.ai - Phase 5 final verification.
 
