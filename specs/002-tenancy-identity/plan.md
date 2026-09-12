@@ -10,7 +10,7 @@
 
 Deliver the first identity and tenant boundary: email/password accounts, revocable server-side sessions, organizations, one role-bearing membership per user and organization, invitations and verification links, role enforcement, organization switching, logical deletion, identity events, and a read-only platform-inspection surface. Implement it as one Next.js/TypeScript vertical slice through the fixed Domain → Application → Infrastructure → App layers. PostgreSQL is the source of truth; Prisma repositories use a registry-driven tenant client that refuses organization-scoped work without a resolved member context or the explicitly read-only platform-inspection context. Organization ownership transfer is serialized and database-checked, and authorization always reloads current membership rather than trusting the session role snapshot.
 
-Implementation is gated on spec `001-solution-foundation` being delivered. Its absence does not change this design and MUST NOT be absorbed into spec 002; task generation/implementation must stop until the foundation supplies the package scripts, composition roots, error middleware, telemetry baseline, design tokens, Prisma baseline, outbox, and test harness named below.
+Implementation is gated on spec `001-solution-foundation` being delivered. Its specification now exists at `specs/001-solution-foundation/spec.md`, but it is not yet planned or delivered; its missing implementation does not change this design and MUST NOT be absorbed into spec 002. Task generation/implementation must stop until the foundation supplies the package scripts, composition roots, error middleware, telemetry baseline, design tokens, Prisma baseline, outbox, and test harness named below.
 
 ## Technical Context
 
@@ -53,7 +53,7 @@ Implementation is gated on spec `001-solution-foundation` being delivered. Its a
 | XI. Design fidelity | ✅ PASS | UI reuses the canonical tokens/components and records all required Design Deltas below; loading, empty, error, denied, keyboard, focus, dialog, and reduced-motion behavior are included. |
 | Global runtime/data/API | ✅ PASS | Node 22, strict TS, Next 16/React 19, PostgreSQL 16, Prisma, `/api/v1`, OpenAPI 3.1, RFC 9457, cursor pagination, UUIDs, UTC timestamps. |
 | Dependency licensing | ✅ PASS | Proposed runtime/dev dependencies are MIT, Apache-2.0, or ISC; implementation must pin them and run the repository license gate before acceptance. |
-| Delivery ordering | ⚠️ PREREQUISITE | Spec 001 is not present in this checkout. Planning can complete, but `/speckit-tasks` must mark 001 as a prerequisite and implementation must not scaffold foundation concerns here. |
+| Delivery ordering | ⚠️ PREREQUISITE | Spec 001 is specified but not yet planned or delivered. Planning can complete, but `/speckit-tasks` must mark 001 as a prerequisite and implementation must not scaffold foundation concerns here. |
 
 No constitution exception is requested. The prerequisite warning is not a principle violation; it is a stop condition before implementation.
 
