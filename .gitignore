@@ -1,0 +1,148 @@
+# ---------------------------------------------------------------------------
+# Agentix — .NET 10 + Angular 22+ + PostgreSQL
+# Committed: source, specs/, .specify/ (templates, scripts, memory), config.
+# Never committed: build output, secrets, machine-local state, third-party deps.
+# ---------------------------------------------------------------------------
+
+# --- Build output / intermediates (.NET) ---
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.dll
+*.exe
+*.pdb
+*.cache
+*.binlog
+TestResults/
+*.trx
+*.coverage
+coverage/
+coverage-report/
+*.coverage.json
+.vscode-server/
+msbuild_*_log.txt
+
+# --- Visual Studio / Rider / VS Code local state ---
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+DotSettings.user
+publish/
+*.pubxml
+!*.pubxml.user.js
+App.config.user
+
+# --- .NET user secrets & local certs (never commit) ---
+*.pfx
+*.crt.key
+*.key
+devcerts/
+**/appsettings.Local.json
+**/appsettings.*.local.json
+appsettings.Development.local.json
+aspnetcore-https*
+
+# --- Secrets & environment files ---
+.env
+.env.*
+!.env.example
+*.env.local
+secrets/
+*.secret
+*.dec
+kms-key*
+aws_credentials
+*.pem
+id_rsa*
+gha_token*
+local-configuration/**/secrets.json
+
+# --- Node / Angular ---
+node_modules/
+.angular/
+dist/
+tmp/
+out-tsc/
+eslintcache
+.npm/
+.yarn/
+.pnp.*
+*.tgz
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+ng-src/**/*.ngfactory.ts
+.stylelintrc.cache
+
+# --- Vercel ---
+.vercel/
+.vercel-tmp/
+
+# --- Playwright / Cypress / test artifacts ---
+test-results/
+playwright-report/
+playwright/.cache/
+cypress/videos/
+cypress/screenshots/
+screenshots/
+*.trace
+
+# --- PostgreSQL / infra local data ---
+pgdata/
+data/postgres/
+docker-data/
+*.sql.bak
+backups/
+pg_wal/
+
+# --- Hangfire / queue state ---
+hangfire_data/
+
+# --- OpenTelemetry / log sinks ---
+logs/
+*.log
+otel-data/
+exporter-output/
+
+# --- Python tooling (spec-kit venvs, scripts) ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# --- Spec Kit: machine-local state only (keep templates/scripts/memory!) ---
+.specify/feature.json
+.specify/**/feature.json
+.specify/extensions/*/local-config.yml
+.specify/.cache/
+
+# --- Editors / agents local config ---
+.claude/settings.local.json
+.claude/.credentials*
+.cursor/mcp.json
+.aider*
+.specify/.pid_cache/
+
+# --- Archives / scratch ---
+*.zip
+*.tar.gz
+scratch/
+notes/
+*.bak
+*.orig
+*.rej
