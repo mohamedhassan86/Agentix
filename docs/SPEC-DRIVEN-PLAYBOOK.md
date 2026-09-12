@@ -15,14 +15,14 @@ mechanical fix. The fixes are already wired into this repo's constitution.
 | --- | --- | --- | --- |
 | 1 | The spec is a re-telling of the idea, not a specification | One prompt asked to "spec the whole app" → the model compresses a 12-subsystem product into a wish list | **One spec = one shippable vertical slice** (Principle I). The 12-slice sequence in §3. |
 | 2 | `plan.md` invents architecture the brief never asked for, and later specs contradict each other | The constitution was advisory prose, not re-read per phase | Mandatory pre-spec ritual: re-read constitution + prior `spec.md`/`plan.md`/`data-model.md`, then fill **Constitution Check** (Principle I) |
-| 3 | Controllers fill up with logic; "clean architecture" becomes a folder diagram | Nothing enforces layer direction or thin actions | Principle II (dependency rule) + Principle IV (action body = one dispatch line) — both reviewable in seconds |
+| 3 | Controllers fill up with logic; "clean architecture" becomes a folder diagram | Nothing enforces layer direction or thin actions | Principle II (dependency rule) + Principle IV (route-handler body = one dispatch line) — both reviewable in seconds |
 | 4 | Anemic `Entity` classes + `Service` layers; invariants duplicated per endpoint | `plan.md` was allowed to skip the domain model | Principle III: behaviour-named aggregate methods, closed state machines, value objects; `data-model.md` is a required artifact |
 | 5 | Multi-tenancy added at the end as "filter everything" | Tenancy treated as a feature instead of a substrate | Spec `002` lands before any tenant data exists; cross-tenant test required per endpoint (Principle V) |
 | 6 | Secrets end up in a `SecretDto`, a log line, or an error payload | Encryption was described, not constrained | Principle VI with a *zero-redaction test* requirement, AAD binding, and no-plaintext-in-response gates |
 | 7 | Approvals implemented in the console "for convenience" | The invariant "GitHub is the approval surface" wasn't testable | Principle VII: no approval endpoint at all; simulator posts to the same signed ingress (verifiable by a test that the route doesn't exist) |
 | 8 | Agents "just work" in the demo, metering and budgets bolted on later | Cost enforcement was a reporting feature | Principle IX: budgets enforced in the dispatch path; `LlmCallRecord` is part of the agent port, not a callback |
 | 9 | `tasks.md` → 120 tasks → agent burns context, half-implements, tests never green | Single mega-implement run | `/speckit-implement` runs **one phase at a time, ≤ 10 tasks**, with the build+test gate as the phase exit criterion (Principle I, X) |
-| 10 | Everything looks finished; `dotnet test` doesn't run | "Done" was defined by the agent | Principle X is the only definition of done; a red tree blocks the next phase |
+| 10 | Everything looks finished; `npm test` doesn't run | "Done" was defined by the agent | Principle X is the only definition of done; a red tree blocks the next phase |
 | 11 | Real GitHub + real LLM keys used from day one → flaky, costly, untestable | Integration-first ordering | **Mock-first**: engine complete on Mock agent + Simulated repository (specs 004–008) before spec 009/010 touch GitHub |
 | 12 | UI drifts from `Public/Desgin/index.html`, one-off colours, new component names | Design reference treated as inspiration | Principle XI: token names/values copied verbatim, component inventory honored, a11y gaps in the mock closed explicitly, deviations need a **Design Delta** note |
 | 13 | The constitution grows into a product spec, then contradicts it after the first UX change | No scope boundary between governance and functional requirements | Principle I scope rule: governance keeps the invariant ("no approval path but the verified ingress"), product detail moves to `specs/` via `docs/business-rules/`. Applied in v1.1.0 |
@@ -47,8 +47,7 @@ If output quality ever drops again, work the table top-to-bottom — it is diagn
    `docs(001): tasks` → `feat(001): implement phase 1` … so a reviewer (and the bot's own PR
    commits) can see exactly what each phase produced.
 6. **Keep `tasks.md` execution scoped.** `/speckit-implement p2` (or "implement phase 2 only") per
-   run. Between phases: `dotnet build`, `dotnet test`, `npm test`, `npm run lint` green, no
-   suppressed warnings.
+   run. Between phases: `npm run lint`, `npm test`, `npm run build` green, no suppressed warnings.
 7. **`/speckit-analyze` is optional — use it after `/speckit-tasks` when drift risk is real** (state
    machines, metering maths, multi-artifact contracts). It catches the spec ↔ plan ↔ tasks drift
    agents produce when they improvise mid-run. Skip it on small mechanical slices, note the skip in
@@ -76,8 +75,8 @@ never require a real GitHub token or a paid LLM call.
 
 | Spec | Scope (in) | Explicitly out | Exit proof |
 | --- | --- | --- | --- |
-| **001** `solution-foundation` | .NET 10 solution (Domain/Application/Infrastructure/Api/Worker), xUnit test projects, Serilog + OpenTelemetry wiring, `ProblemDetails`, health endpoints, EF + Npgsql + migration pipeline, Angular 22 workspace + `@agentix/tokens` from the mock, CI with the gate commands | Business entities, auth, tenancy | `dotnet build`/`dotnet test` green on a hello-world vertical (health + `GET /api/v1/ping` + Angular page rendering tokens) |
-| **002** `tenancy-identity` | Register → organisation → members + roles (owner/admin/member/viewer), invitations, `org_id` on every tenant table + convention-driven global query filters, JWT access + refresh cookie, authorization policies, tenant middleware fail-closed | Projects, agents, billing | Cross-tenant test suite: every endpoint returns 403/404 for a foreign tenant; permission matrix test |
+| **001** `solution-foundation` | Next.js 16 (App Router) solution with layered TypeScript packages (domain/application/infrastructure/app/worker), Vitest test suites, pino + OpenTelemetry wiring, `ProblemDetails`, health endpoints, Prisma + Postgres + migration pipeline, `@agentix/tokens` from the mock, CI with the gate commands | Business entities, auth, tenancy | `npm run lint`/`npm test`/`npm run build` green on a hello-world vertical (health + `GET /api/v1/ping` + page rendering tokens) |
+| **002** `tenancy-identity` | Register → organisation → members + roles (owner/admin/member/viewer), invitations, `org_id` on every tenant table + convention-driven global query filters, Auth.js session cookie, authorization policies, tenant middleware fail-closed | Projects, agents, billing | Cross-tenant test suite: every endpoint returns 403/404 for a foreign tenant; permission matrix test |
 | **003** `secret-vault` | Envelope crypto (AES-256-GCM, per-org DEK, KEK via `ISecretProtector` + KMS, file-backed dev protector), secret CRUD with masked reads, versioning, rotation, revocation, access audit log, zero-redaction tests | Real provider calls | Tamper/replay/round-trip tests; no plaintext in logs/response assertions |
 | **004** `projects-and-source-contract` | Project ↔ repository mapping, `ISourceProvider` port + capability model, **Simulated repository** provider (in-memory/DB-backed git fake: branches, commits, trees, blobs, search, PR/comment state), Azure DevOps typed stub skeleton | GitHub HTTP integration | Pipeline can commit/read against the Simulated repo; capability-driven 501 path tested |
 | **005** `agent-profiles-and-skills` | Per-phase agent profile (provider, model, temperature, rules), skill library (built-in Spec Kit skills + org skills), profile snapshot onto a run, role-aware validation | Live provider calls | Snapshot immutability test; profile resolution tests; skills CRUD with role matrix |
@@ -115,7 +114,7 @@ Non-goals: SSO, SAML, projects, billing plans.
 
 Rules: 3–5 user stories max, each independently testable; functional requirements numbered and
 testable ("FR-012: viewer MUST receive 403 on member invitation"); explicit **Out of Scope**;
-acceptance scenarios with concrete numbers; no tech names (no "EF Core filter", no "JWT").
+acceptance scenarios with concrete numbers; no tech names (no "Prisma filter", no "JWT").
 Then read the drafted spec once and cut anything that names a library — that is the fastest single
 quality win available.
 
@@ -157,8 +156,7 @@ signature/replay, budget enforcement, judge loop termination. A 10-item focused 
 One phase per run. Between phases:
 
 ```bash
-dotnet build && dotnet test && dotnet format --verify-no-changes
-cd client/agentix-web && npm run lint && npm test && npm run build
+npm run lint && npm test && npm run build
 ```
 
 If a phase ends red, the run stops there: fix, commit, then continue. Do not let the agent "finish
@@ -193,7 +191,7 @@ principle it touches), migrations are reviewed, and any exception is logged in
 - A `tasks.md` where one task spans three subsystems.
 - Handlers that mutate entities directly instead of calling aggregate behaviour.
 - Controllers with `if`, `try`, or a `DbContext` field.
-- `IgnoreQueryFilters()` in Application/Api; a tenant id accepted from a query string.
+- Tenant-filter bypass (raw SQL / unfiltered ORM queries) in application/app; a tenant id accepted from a query string.
 - Secrets readable through any GET; a DTO with a `KeyValue` field; keys in logs/timeline.
 - An `/api/v1/runs/{id}/approve` endpoint (Principle VII forbids approval outside webhook ingress).
 - Costing done "in the client" or reconstructed by summing other tables instead of the ledger.
