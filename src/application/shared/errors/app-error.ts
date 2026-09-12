@@ -7,6 +7,7 @@ export interface AppErrorOptions {
   title?: string;
   errors?: Record<string, string[]>;
   cause?: unknown;
+  dependency?: "database" | "schema";
 }
 
 export class AppError extends Error {
@@ -16,6 +17,7 @@ export class AppError extends Error {
   public readonly detail: string;
   public readonly errors?: Record<string, string[]>;
   public readonly isOperational: boolean = true;
+  public readonly dependency?: "database" | "schema";
 
   constructor(message: string, options: AppErrorOptions = {}) {
     super(message);
@@ -25,6 +27,7 @@ export class AppError extends Error {
     this.title = options.title ?? "An error occurred";
     this.detail = options.detail ?? message;
     this.errors = options.errors;
+    this.dependency = options.dependency;
     if (options.cause) {
       (this as any).cause = options.cause;
     }
@@ -80,19 +83,19 @@ export class DomainRuleError extends AppError {
 }
 
 export class UnavailableError extends AppError {
-  constructor(message: string, code: ErrorCode = ErrorCodes.UNAVAILABLE, status = 503) {
+  constructor(message: string, dependency?: "database" | "schema", code: ErrorCode = ErrorCodes.UNAVAILABLE, status = 503) {
     super(message, {
       code,
       status,
       title: "Service unavailable",
       detail: message,
+      dependency: dependency ?? "database",
     });
   }
 }
 
 export class UnexpectedError extends AppError {
   constructor(message: string, code: ErrorCode = ErrorCodes.UNEXPECTED_FAILURE) {
-    // Always return generic safe detail for unexpected errors
     super(message, {
       code,
       status: 500,

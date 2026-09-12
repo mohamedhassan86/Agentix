@@ -13,6 +13,7 @@ export function mapErrorToProblem(error: unknown, correlationId: string): Proble
       correlationId,
       detail: error.detail,
       errors: error.errors,
+      dependency: error.dependency,
     };
   }
 

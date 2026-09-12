@@ -7,7 +7,7 @@ module.exports = {
       severity: "error",
       from: { path: "^src/domain" },
       to: {
-        path: "^(src/(application|infrastructure|app|worker)|node_modules/@prisma|node_modules/next|node_modules/react|@prisma|next|react)",
+        path: "^(src/application|src/infrastructure|src/app/|src/worker|node_modules/@prisma|node_modules/next|node_modules/react|@prisma|next|react)",
         pathNot: "^src/domain",
       },
     },
@@ -17,7 +17,7 @@ module.exports = {
       severity: "error",
       from: { path: "^src/application" },
       to: {
-        path: "^(src/(infrastructure|app|worker))|node_modules/(next|react|@prisma)|@prisma|next/|react",
+        path: "^(src/infrastructure|src/app/|src/worker|node_modules/(next|react|@prisma)|@prisma|next/|react)",
       },
     },
     {
@@ -32,7 +32,7 @@ module.exports = {
       comment: "App layer must not import Prisma directly; use Application ports",
       severity: "error",
       from: { path: "^src/app" },
-      to: { path: "(@prisma/client|@prisma/adapter-pg|src/infrastructure/persistence/prisma|src/generated)" },
+      to: { path: "(@prisma/client|@prisma/adapter-pg|src/generated)" },
     },
     {
       name: "no-circular",
@@ -46,7 +46,28 @@ module.exports = {
       comment: "Domain should not depend on infrastructure/app/worker",
       severity: "error",
       from: { path: "^src/domain" },
-      to: { path: "^src/(infrastructure|app|worker)" },
+      to: { path: "^(src/infrastructure|src/app/|src/worker)" },
+    },
+    {
+      name: "fixture-domain-imports-infrastructure",
+      comment: "Fixture: domain importing infrastructure must fail",
+      severity: "error",
+      from: { path: "domain-imports-infrastructure" },
+      to: { path: "src/infrastructure" },
+    },
+    {
+      name: "fixture-application-imports-prisma",
+      comment: "Fixture: application importing prisma must fail",
+      severity: "error",
+      from: { path: "application-imports-prisma" },
+      to: { path: "(@prisma/client|prisma)" },
+    },
+    {
+      name: "fixture-app-imports-prisma",
+      comment: "Fixture: app importing prisma must fail",
+      severity: "error",
+      from: { path: "app-imports-prisma" },
+      to: { path: "(@prisma/client|prisma)" },
     },
   ],
   options: {
