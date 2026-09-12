@@ -4,6 +4,7 @@ import { getCorrelationIdFromHeaders } from "./correlation";
 import { mapErrorToProblem, createProblemResponse } from "./problem-response";
 import { getCorsHeaders, getAllowedOrigins, parseAndValidateOrigin } from "./cors";
 import { getLogger } from "@/infrastructure/observability/logger";
+import { recordHttpRequest, recordHttpFailure } from "@/infrastructure/observability/metrics";
 
 export interface RouteHandlerOptions {
   operation: string;
@@ -53,6 +54,12 @@ export async function dispatchRoute<TReq>(params: {
     const duration = (Date.now() - start) / 1000;
     logger.info({ status: 200, duration, operation: params.operation, correlationId });
 
+    try {
+      recordHttpRequest({ operation: params.operation, status: "200" }, duration);
+    } catch {
+      void 0;
+    }
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-Correlation-Id": correlationId,
@@ -73,6 +80,12 @@ export async function dispatchRoute<TReq>(params: {
   } catch (error) {
     const problem = mapErrorToProblem(error, correlationId);
     logger.warn({ status: problem.status, code: problem.code, operation: params.operation, correlationId });
+
+    try {
+      recordHttpFailure({ operation: params.operation, status: String(problem.status) });
+    } catch {
+      void 0;
+    }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/problem+json",

@@ -60,20 +60,33 @@ jobs:
       - name: Architecture check
         run: npm run architecture:check
 
-      - name: OpenAPI check
-        run: npm run openapi:check
+      - name: OpenAPI generate and check
+        run: |
+          npm run openapi:generate
+          npm run openapi:check
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/agentix_test
 
       - name: Tests
         run: npm test
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/agentix_test
           APP_ORIGIN: http://localhost:3000
+          FOUNDATION_DEMO_ENABLED: true
 
       - name: Build
         run: npm run build
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/agentix_test
           APP_ORIGIN: http://localhost:3000
+          FOUNDATION_DEMO_ENABLED: true
 
       - name: License check
         run: npm run license:check
+
+      - name: Full verification sequence (same as local)
+        run: npm run lint && npm test && npm run build && npm run license:check && npm run architecture:check && npm run openapi:check && npm run test:policy
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/agentix_test
+          APP_ORIGIN: http://localhost:3000
+          FOUNDATION_DEMO_ENABLED: true

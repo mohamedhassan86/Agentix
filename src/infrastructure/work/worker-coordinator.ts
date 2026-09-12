@@ -11,6 +11,7 @@ import { WorkHandlerRegistry } from "@/application/shared/work/work-handler-regi
 import { createWorkContext } from "@/application/shared/work/work-context";
 import { failedResult, retryResult } from "@/application/shared/work/work-result";
 import { createLogger } from "@/infrastructure/observability/logger";
+import { recordWorkOutcome } from "@/infrastructure/observability/metrics";
 
 export interface WorkerCoordinatorOptions {
   workerId: string;
@@ -158,7 +159,20 @@ export class WorkerCoordinator {
               outcome: result.outcome,
               duration,
               correlationId: work.correlationId,
+              work_type: work.type,
             });
+
+            try {
+              if (result.outcome === "succeeded") {
+                recordWorkOutcome("succeeded", { work_type: work.type, outcome: result.outcome });
+              } else if (result.outcome === "failed") {
+                recordWorkOutcome("failed", { work_type: work.type, outcome: result.outcome });
+              } else if (result.outcome === "retry_scheduled") {
+                recordWorkOutcome("retry", { work_type: work.type, outcome: result.outcome });
+              }
+            } catch {
+              void 0;
+            }
           } catch (e) {
             const duration = Date.now() - start;
             this.logger.error({ msg: "work handler error", workId: work.workId, err: e, correlationId: work.correlationId });
