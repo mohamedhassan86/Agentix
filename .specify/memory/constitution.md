@@ -57,7 +57,7 @@ src/Agentix.Infrastructure  → EF Core, Postgres, LLM providers, ISourceProvide
 src/Agentix.Api             → controllers, middleware, filters, OpenAPI, composition root (part)
 src/Agentix.Worker          → hook/agent execution host, composition root (part)
 tests/Agentix.Domain.Tests, tests/Agentix.Application.Tests, tests/Agentix.IntegrationTests
-client/agentix-web          → Angular workspace (app + shared design-token library)
+client/agentix-web          → Next.js app (App Router, React, shared design-token module)
 ```
 
 - `Agentix.Domain` MUST NOT reference EF Core, ASP.NET, HttpClient, provider SDKs, Hangfire,
@@ -112,7 +112,7 @@ will be duplicated by the next handler and the one after that.
   (`IQueryable` → DTO) and MUST NOT mutate state or return EF entity types across the boundary.
 - Contracts are code-first with explicit request/response records in `Agentix.Application`;
   OpenAPI 3.1 is generated from them and committed to `contracts/openapi/*.json` per spec so the
-  Angular client can generate typed clients from the same source of truth.
+  Next.js client can generate typed clients from the same source of truth.
 - Endpoints are versioned under `/api/v1`; breaking changes require a new version and a spec.
 - Library policy: only permissively licensed open source (MIT, Apache-2.0, BSD-2/3, ISC, MPL-2.0).
   A dependency with a commercial or copyleft obligation MUST NOT be introduced. CQRS dispatch may
@@ -287,12 +287,13 @@ one of them can be bypassed, the whole budget story is fiction.
   idempotent replay, and OpenAPI-contract conformance.
 - Webhook tests with fixed HMAC fixtures: valid signature, tampered body, wrong secret, expired
   timestamp, replayed delivery, unknown connection.
-- Angular: unit tests (Vitest or Jest) for state, permission-driven rendering, and cost formatting;
+- Next.js: unit tests (Vitest or Jest) for state, permission-driven rendering, and cost formatting;
   an E2E smoke (Playwright) over the golden path — register → org → project + repo mapping → agents
   per phase → mock run → timeline → `/approve` via simulator → merge → delivered.
 - A phase is complete only when all of the following pass locally and in CI with no suppressed
   warnings: `dotnet build`, `dotnet test`, analyzer/`dotnet format --verify-no-changes`,
-  license scan, `ng lint`, `ng test --watch=false`, `ng build`.
+  license scan, `npm run lint` (ESLint), `npm test` (Vitest), `npm run build` (Next.js
+  `next build` with type-checking).
 - EF migrations: additive and reversible by default; any destructive change needs a
   "Data Migration" section in `plan.md` with a rollback plan; migration names include the spec
   number.
@@ -351,8 +352,8 @@ lets eleven screens stay consistent while the backend grows.
 ## Global Constraints
 
 - **Runtime**: .NET 10 (LTS) with `net10.0`, nullable reference types enabled, warnings-as-errors,
-  implicit usings, analyzers on. Angular 22+ with standalone components, signals for local state,
-  and TypeScript `strict: true`.
+  implicit usings, analyzers on. Next.js 16+ (App Router) with React 19 and TypeScript
+  `strict: true`.
 - **Data**: PostgreSQL 16+ (Neon, Supabase, or RDS) via EF Core 10 + Npgsql. Snake_case tables
   (plural) and columns; `uuid` primary keys (v7/sequential to avoid index hot spots); composite
   indexes leading with `org_id`; `timestamptz` in UTC; `numeric(18,6)` for money, `numeric(18,10)`
@@ -375,12 +376,13 @@ lets eleven screens stay consistent while the backend grows.
   `webhook_rejected_total`. Secret values, tokens, and full prompts/responses MUST NOT be logged;
   prompt/response bodies are opt-in, size-capped, and redaction-scanned. Retention default 30 days
   for traces, 13 months for ledger rows.
-- **Hosting split**: Angular builds deploy to Vercel as a static SPA (no server-side secrets, no
-  private keys in `NEXT/VITE/NG` env; only public config like API base URL). The .NET API and
-  workers run on a real host — locally via Visual Studio dev tunnel / reverse proxy, deployed to a
-  container or app service with TLS 1.2+ and an explicit CORS allow-list. Vercel proxies
-  `/api/*` to the .NET host so the browser only ever talks same-origin. Postgres stays on the
-  managed provider. Nothing server-side runs on Vercel.
+- **Hosting split**: Next.js builds deploy to Vercel with a same-origin `/api/*` rewrite to the
+  .NET host (only public config in the client env, e.g. API base URL; no secrets, provider keys,
+  or private keys in any client env var). The .NET API and workers run on a real host — locally
+  via Visual Studio dev tunnel / reverse proxy, deployed to a container or app service with
+  TLS 1.2+ and an explicit CORS allow-list. The browser only ever talks same-origin. Postgres
+  stays on the managed provider. The Next.js layer holds no business logic and no server-side
+  secrets — all product logic and credentials live in the .NET host.
 - **Licensing**: permissive OSS only (MIT/Apache-2.0/BSD/ISC/MPL-2.0); a license scan gate in CI.
 - **Config**: `appsettings.json` + `appsettings.{Dev,Staging,Prod}.json` with no secrets; env vars
   or KMS-provided values at runtime; `.env`, user-secrets, and connection strings never committed;
@@ -473,9 +475,9 @@ only fixes the starting default and its safe bounds.
    production, not test-only fixtures — they back the demo path and the pricing/behaviour tests.
 8. Verified-ingress defaults for the first build: 300 s replay window, delivery ids unique per
    connection forever (not per day). `specs/009-*` owns the protocol and may restate either value.
-9. Angular consumes generated OpenAPI clients; hand-written service files are the exception and need
-   a reason in `plan.md`.
+9. The Next.js client consumes generated OpenAPI clients; hand-written service modules are the
+   exception and need a reason in `plan.md`.
 10. `Public/Desgin/index.html` stays at its current path and remains the single design reference;
     implementation-specific tokens live in `client/agentix-web` styles, not in new mock files.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-12
+**Version**: 1.2.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-12

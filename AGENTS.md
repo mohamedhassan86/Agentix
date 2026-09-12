@@ -20,7 +20,7 @@ Agents that skip step 1 or 2 produce the failure modes catalogued in
 - One spec = one branch (`NNN-short-name`, created by the `before_specify` hook) = one PR.
 - Implementation runs **one phase at a time, ≤ 10 tasks**. A phase is not complete until
   `dotnet build`, `dotnet test`, `dotnet format --verify-no-changes` and (for client work)
-  `npm run lint`, `npm test`, `npm build` are green. Red tree → next phase does not start.
+  `npm run lint`, `npm test`, `npm run build` are green. Red tree → next phase does not start.
 - Commit each phase's artifacts separately from code (`docs(NNN): …`, `feat(NNN): …`).
 - No code without a spec; no spec with implementation detail in it.
 - Never introduce a dependency without a license check (permissive OSS only) and, if it is

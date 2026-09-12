@@ -26,8 +26,8 @@ decision happens in the repository. Every LLM call is metered to the cent.
 ## Architecture
 
 ```
-                ┌────────────────────────────── Vercel (static SPA) ─────────────────────────┐
-   browser ───▶ │ Angular 22+ client (signals, standalone, generated OpenAPI clients)        │
+                ┌────────────────────────────── Vercel (Next.js app) ────────────────────────┐
+   browser ───▶ │ Next.js 16+ client (App Router, React, generated OpenAPI clients)          │
                 └───────────────┬──────────────────────────────────────────────────────────┘
                                 │ same-origin /api/* proxy
    GitHub ──HMAC webhook──▶ ┌───▼─────────────────────────────── a real host (dev tunnel → prod container) ─┐
@@ -55,14 +55,14 @@ specs/             one directory per feature: spec.md plan.md research.md data-m
 docs/              SPEC-DRIVEN-PLAYBOOK.md (how we build), governance/exceptions.md
 Public/Desgin/     index.html — the canonical UI design guideline (path intentionally as-is)
 src/               Agentix.Domain · Application · Infrastructure · Api · Worker
-client/            agentix-web (Angular workspace)
+client/            agentix-web (Next.js app — App Router, React, generated OpenAPI clients)
 tests/             Domain.Tests · Application.Tests · IntegrationTests (xUnit + Testcontainers)
 ```
 
 ## Prerequisites
 
 - .NET 10 SDK (`net10.0`) and EF Core CLI: `dotnet tool install -g dotnet-ef`
-- Node 22+ and npm; Angular CLI: `npm i -g @angular/cli`
+- Node 22+ and npm; Next.js 16+ is scaffolded per project with `create-next-app` (no global CLI)
 - Docker Desktop (Testcontainers for integration tests) *or* a Neon/Supabase branch database
 - Python 3.11+ and `uv` for the Spec Kit CLI: `uv tool install -q --from git+https://github.com/github/spec-kit.git specify-cli`
 - A KMS/secret manager for the KEK (local dev falls back to a file-backed protector with a fake key)
@@ -81,9 +81,9 @@ dotnet restore && dotnet ef database update && dotnet run
 # 3. worker (hooks, agent runs, metering, budget enforcement)
 cd ../Agentix.Worker && dotnet run
 
-# 4. Angular client (Vercel-compatible proxy of /api/* to :5080)
+# 4. Next.js client (dev proxy of /api/* to :5080, same shape as the Vercel deployment)
 cd ../../client/agentix-web
-npm install && npm start            # http://localhost:4200
+npm install && npm run dev          # http://localhost:3000
 ```
 
 Verification gates (all must be green before a phase is called complete):

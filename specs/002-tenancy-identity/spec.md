@@ -310,7 +310,7 @@ Legend: **Y** = allowed, **N** = denied, **—** = not applicable. "Reserved" ro
 
 ## Constitution Check
 
-Re-read performed: `.specify/memory/constitution.md` v1.1.0 (2026-09-12) and all prior `specs/*/spec.md`, `plan.md`, `data-model.md`, `contracts/` — **no prior feature specs exist**.
+Re-read performed: `.specify/memory/constitution.md` v1.2.0 (2026-09-12) and all prior `specs/*/spec.md`, `plan.md`, `data-model.md`, `contracts/` — **no prior feature specs exist**. (v1.2.0 amended the client stack from Angular to Next.js; this spec names no client framework, so no other check line is affected — the client layer stays plan-time under Principle II.)
 
 | Principle | Binding on this spec? | How |
 | --- | --- | --- |
