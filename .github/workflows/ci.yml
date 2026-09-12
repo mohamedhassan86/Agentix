@@ -166,26 +166,18 @@ jobs:
       - name: Tests
         run: |
           set +e
-          npm test -- --reporter=verbose 2>&1 | tee test-output.txt
+          npm test -- --reporter=verbose --reporter=github-actions 2>&1 | tee test-output.txt
           TEST_EXIT=${PIPESTATUS[0]}
           echo "## Test Output" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 300 test-output.txt >> $GITHUB_STEP_SUMMARY
+          tail -n 500 test-output.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           if [ $TEST_EXIT -ne 0 ]; then
-            echo "=== TEST FAILURES (last 800 lines) ==="
-            tail -n 800 test-output.txt
+            echo "=== TEST FAILURES (last 1000 lines) ==="
+            tail -n 1000 test-output.txt
             echo "=== END TEST OUTPUT ==="
-            echo "=== FAILED TEST FILES ==="
-            grep -E "FAIL|×|✕" test-output.txt | tail -n 50 || true
-            echo "=== LISTING TEST FILES ==="
-            ls tests/**/*.test.ts tests/**/*.test.tsx 2>/dev/null | head -n 50
-            # Try running each test file individually to isolate
-            echo "=== ISOLATING FAILING TESTS ==="
-            for f in tests/unit/infrastructure/config.test.ts tests/unit/infrastructure/logger.test.ts tests/unit/application/correlation.test.ts; do
-              echo "--- Running $f ---"
-              npm test -- --run "$f" 2>&1 | tail -n 20 || true
-            done
+            echo "=== FAILED TESTS ==="
+            grep -E "FAIL|×|✕|AssertionError" test-output.txt | tail -n 100 || true
             exit $TEST_EXIT
           fi
         env:
@@ -205,21 +197,22 @@ jobs:
         if: failure()
         run: |
           echo "Saving failure log to ci-failure-log.txt"
-          mkdir -p /tmp/failure-log
-          cp test-output.txt /tmp/failure-log/ci-failure-log.txt || true
-          # Also save last 1000 lines as separate file for quick view
           tail -n 1000 test-output.txt > ci-failure-log.txt || true
           echo "=== CI FAILURE LOG ===" >> ci-failure-log.txt
           echo "Run ID: ${{ github.run_id }}" >> ci-failure-log.txt
-          echo "Job ID: ${{ github.job }}" >> ci-failure-log.txt
-          cat ci-failure-log.txt | head -n 200
-          # Configure git and push log file to branch (only for push events, not PR from fork)
+          cat ci-failure-log.txt | head -n 300
+          # Try to push log file to branch
           if [ "${{ github.event_name }}" == "push" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
+            git fetch origin ${{ github.ref_name }} --depth=1 || true
             git add ci-failure-log.txt
-            git commit -m "ci: save failure log for run ${{ github.run_id }}" || echo "No changes to commit"
-            git push origin HEAD:${{ github.ref_name }} || echo "Push failed"
+            git commit -m "ci: save failure log for run ${{ github.run_id }}" || echo "No changes"
+            git push origin HEAD:${{ github.ref_name }} || echo "Push failed - trying force"
+          fi
+          # Also try to create gist if possible
+          if command -v gh >/dev/null 2>&1; then
+            gh gist create ci-failure-log.txt --public -d "CI failure log ${{ github.run_id }}" || echo "Gist creation failed"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
