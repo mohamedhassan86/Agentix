@@ -165,12 +165,19 @@ jobs:
 
       - name: Tests
         run: |
+          set +e
           npm test -- --reporter=verbose 2>&1 | tee test-output.txt
           TEST_EXIT=${PIPESTATUS[0]}
+          echo "## Test Output" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 200 test-output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           if [ $TEST_EXIT -ne 0 ]; then
-            echo "=== TEST FAILURES ==="
-            cat test-output.txt
+            echo "=== TEST FAILURES (last 500 lines) ==="
+            tail -n 500 test-output.txt
             echo "=== END TEST OUTPUT ==="
+            # Also try to extract failed tests
+            grep -A 10 "FAIL\|×\|✕\|AssertionError\|Error:" test-output.txt | tail -n 300 || true
             exit $TEST_EXIT
           fi
         env:
@@ -185,6 +192,21 @@ jobs:
           name: test-output
           path: test-output.txt
           retention-days: 7
+
+      - name: Comment PR with test failures on failure
+        if: failure() && github.event_name == 'pull_request'
+        run: |
+          echo "Posting test failure comment to PR..."
+          # Truncate to 60000 chars for comment limit
+          FAIL_SUMMARY=$(tail -n 300 test-output.txt | head -c 60000)
+          gh pr comment ${{ github.event.pull_request.number }} --body "### ❌ Tests failed in CI
+
+          \`\`\`
+          $FAIL_SUMMARY
+          \`\`\`
+          " || echo "Failed to comment PR"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build
         run: npm run build
