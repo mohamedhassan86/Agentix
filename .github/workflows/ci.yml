@@ -36,13 +36,47 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate Prisma schema
-        run: npm run prisma:validate
+      - name: Cache Prisma engines
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/prisma
+            ~/.config/prisma
+            node_modules/.prisma
+            src/generated/prisma
+          key: prisma-${{ runner.os }}-${{ hashFiles('prisma/schema.prisma', 'package-lock.json') }}
+          restore-keys: |
+            prisma-${{ runner.os }}-
+
+      - name: Generate Prisma client (with retry)
+        run: |
+          for i in 1 2 3; do
+            npx prisma generate && break
+            echo "prisma generate failed attempt $i, retrying..."
+            sleep 5
+          done
+          npx prisma generate
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/agentix_test
 
-      - name: Run migrations
-        run: npm run db:migrate
+      - name: Validate Prisma schema (with retry)
+        run: |
+          for i in 1 2 3; do
+            npm run prisma:validate && break
+            echo "prisma validate failed attempt $i, retrying..."
+            sleep 5
+          done
+          npm run prisma:validate
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/agentix_test
+
+      - name: Run migrations (with retry)
+        run: |
+          for i in 1 2 3; do
+            npm run db:migrate && break
+            echo "db:migrate failed attempt $i, retrying..."
+            sleep 5
+          done
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/agentix_test
 
