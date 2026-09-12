@@ -25,6 +25,7 @@ mechanical fix. The fixes are already wired into this repo's constitution.
 | 10 | Everything looks finished; `dotnet test` doesn't run | "Done" was defined by the agent | Principle X is the only definition of done; a red tree blocks the next phase |
 | 11 | Real GitHub + real LLM keys used from day one → flaky, costly, untestable | Integration-first ordering | **Mock-first**: engine complete on Mock agent + Simulated repository (specs 004–008) before spec 009/010 touch GitHub |
 | 12 | UI drifts from `Public/Desgin/index.html`, one-off colours, new component names | Design reference treated as inspiration | Principle XI: token names/values copied verbatim, component inventory honored, a11y gaps in the mock closed explicitly, deviations need a **Design Delta** note |
+| 13 | The constitution grows into a product spec, then contradicts it after the first UX change | No scope boundary between governance and functional requirements | Principle I scope rule: governance keeps the invariant ("no approval path but the verified ingress"), product detail moves to `specs/` via `docs/business-rules/`. Applied in v1.1.0 |
 
 If output quality ever drops again, work the table top-to-bottom — it is diagnostic in that order.
 
@@ -48,8 +49,10 @@ If output quality ever drops again, work the table top-to-bottom — it is diagn
 6. **Keep `tasks.md` execution scoped.** `/speckit-implement p2` (or "implement phase 2 only") per
    run. Between phases: `dotnet build`, `dotnet test`, `npm test`, `npm run lint` green, no
    suppressed warnings.
-7. **`/speckit-analyze` after `/speckit-tasks`, before implementing.** It catches the
-   spec ↔ plan ↔ tasks drift that agents produce when they improvise mid-run.
+7. **`/speckit-analyze` is optional — use it after `/speckit-tasks` when drift risk is real** (state
+   machines, metering maths, multi-artifact contracts). It catches the spec ↔ plan ↔ tasks drift
+   agents produce when they improvise mid-run. Skip it on small mechanical slices, note the skip in
+   `plan.md`, and never let an optional step block a phase gate.
 8. **`/speckit-converge` at the end of a spec** — it turns "what we ran out of room for" into
    explicit tasks instead of silent gaps or a new unnumbered spec.
 9. **The agent must re-read, not remember.** At the start of each command, the constitution and the
@@ -59,6 +62,10 @@ If output quality ever drops again, work the table top-to-bottom — it is diagn
     `specs/NNN+1`, not extra tasks in the current list.
 11. **Every principle needs a checkable consequence.** If a plan can't say which test, review
     checklist line, or lint rule enforces it, the plan is rejected at the Constitution Check gate.
+12. **Governance stays governance.** If a proposed constitution clause describes a screen, a command
+    string, a role matrix, or a customer-visible threshold, it belongs in `spec.md`. Keep durable
+    "never do X" rules in the constitution and park the detail in `docs/business-rules/` until its
+    spec exists (the v1.1.0 amendment moved the webhook/approval protocol out for exactly this reason).
 
 ---
 
@@ -137,8 +144,11 @@ Order the phases: contracts/DTOs → domain + tests → persistence/migrations �
 client wiring → integration tests → docs. Enforce: **no task may reference a file outside the spec's
 scope**; add a "constitution compliance" phase (Principle Governance).
 
-### `/speckit-analyze` + `/speckit-checklist`
-`/speckit-analyze` before implementing — fix drift in the artifacts, not in code. Use
+### `/speckit-analyze` + `/speckit-checklist` (both optional)
+
+Upstream Spec Kit classifies `clarify`, `analyze` and `checklist` as *enhancement* commands, and this
+repo treats them that way: run them on the specs that carry risk, skip and note the reason otherwise.
+`/speckit-analyze` after tasks — fix drift in the artifacts, not in code. Use
 `/speckit-checklist` for the high-risk axes only: tenant isolation, secret handling, webhook
 signature/replay, budget enforcement, judge loop termination. A 10-item focused checklist beats a
 40-item generic one, because a generic one is skimmed.

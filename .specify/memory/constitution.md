@@ -13,9 +13,16 @@ from drifting apart.
 Every change to production code, schema, or UI starts from a numbered feature directory at
 `specs/NNN-feature/` produced by the Spec Kit workflow. No spec → no plan → no code.
 
-- The phase order is fixed: `/speckit-specify` → `/speckit-clarify` (optional but recommended) →
-  `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`, with `/speckit-analyze` and
-  `/speckit-checklist` as quality gates before implementation.
+- The mandatory phase order is `/speckit-specify` → `/speckit-plan` → `/speckit-tasks` →
+  `/speckit-implement`. The enhancement commands are **OPTIONAL** — `/speckit-clarify`,
+  `/speckit-analyze`, `/speckit-checklist` — and are run when a spec carries a state machine, a money
+  rule, an authorization boundary, or UI that departs from the design guideline. Skipping one is a
+  legitimate decision: record the skip in `plan.md` in one line with its reason, don't omit it
+  silently, and don't treat an optional step as a gate.
+- The constitution governs *how* the product is engineered; it does not restate *what* the product
+  promises its users. Screen flows, command syntax, role matrices, trigger labels and
+  customer-chosen thresholds are functional requirements living in `specs/NNN/spec.md`. An amendment
+  MUST remove governance text that has drifted into product description.
 - Before specifying, the agent MUST re-read `.specify/memory/constitution.md` (this file) and the
   `spec.md`, `plan.md`, `data-model.md`, and `contracts/` of every already-delivered feature, then
   record in the new spec's **Constitution Check** which prior constraints bind it. Skipping this
@@ -167,42 +174,44 @@ future credential.
   (`llm-call`, `webhook-verify`, `repo-access`), and when — visible in the Secret access log screen.
 - Rotation appends a new version and marks the previous one decrypt-only; revocation makes the
   secret unusable within one worker tick (≤ 60 s) and is an audited event.
-- Webhook ingress: each connection has a high-entropy per-connection URL path component plus an
-  HMAC-SHA256 signature over the raw request body with a timestamp header; the verifier compares
-  signatures in constant time, rejects |now − timestamp| > 300 s (replay window), and rejects
-  unknown connections — all with 401 and an audit record, no distinguishing detail to the caller.
+- Key material used to verify inbound events (webhook signing secrets) is governed by this
+  principle too: high-entropy generation, encrypted storage, rotation, and constant-time comparison
+  at the boundary. It MUST NOT appear in a URL query string, a log line, or an error body, and MUST
+  NOT leak which part of verification failed. The protocol itself — header names, signature algorithm
+  choice, replay window, de-duplication, rejection status codes — is specified in `specs/009-*`.
 - Removing a member or downgrading a role revokes their effective access immediately; deleting an
   organization destroys its DEK (crypto-shredding) and leaves a tombstone row only.
 
 Rationale: the product stores the keys that can spend the customer's money and read their source
 code; the blast radius of a database leak must be zero.
 
-### VII. GitHub Is the Approval Surface
+### VII. One Verified Ingress Is the Only Approval Path
 
-- A run starts from the repository: an issue labelled `sdlc`, or a `/specify` comment. The bot
-  writes the Spec Kit artifacts, commits them to the spec branch, opens a **draft** PR, and asks
-  for review in a PR comment.
-- Human intent is expressed only as commands in issue/PR comments: `/approve`,
-  `/revise <feedback>`, `/reject`, `/answer <text>`, `/status`, `/cost`, `/retry`. Each has a
-  defined state-machine effect and a defined comment reply; unknown or unauthorized commands get a
-  short usage reply and an audit entry.
-- Merging the PR is delivery: the run transitions to `Delivered` only on the merge event. `/approve`
-  moves a run to `Approved`/PR-ready; it never implies merge, and merge never implies review passed.
-- The console has **no approve button**, and the API exposes **no approval endpoint**: approval
-  transitions are unreachable except through the webhook ingress. The dashboard's simulator MUST
-  POST to that same signed ingress path with a simulated payload — one code path for real and fake
-  events, so demo behaviour cannot diverge from production behaviour.
-- Inbound events are idempotent: deduplicated on `(connection_id, delivery_id)` with a unique index;
-  duplicate delivery is a no-op returning the prior outcome; ordering is repaired by the state
-  machine, not by assuming arrival order. Failures are retryable and observable (`/status`).
-- Outbound writes (commit, comment, PR ready, labels) are recorded as idempotent outbox jobs keyed
-  by the event that requested them.
-- Command authorization: the commenter MUST be an accepted org member (or a bot identity), with the
-  role required per command (`/reject`, `/approve` → admin or owner; `/answer`, `/status`, `/cost` →
-  any member; `/revise` → member or above).
+What a run's approval *means* to a user is product behaviour. What is governed here is the
+architecture that keeps that meaning safe as the product grows.
 
-Rationale: keeping approval inside the repo preserves the audit trail, code review, and CI gates
-that a bespoke approval button would bypass.
+- Approval state advances **only** through the verified inbound event path of the active
+  `ISourceProvider`. The API MUST NOT expose any endpoint that moves a run's approval state — no
+  console button, no admin override, no "quick approve" for demos. Asserting the absence of such a
+  route is part of Principle X's per-surface integration coverage.
+- Real and simulated events share one code path: the dashboard simulator submits through the same
+  verified ingress and the same handler. A privileged simulator shortcut (direct service call,
+  seeded database state, test-only route) is a defect, because it lets demo behaviour diverge from
+  production behaviour.
+- Verification, replay rejection and de-duplication happen at the boundary, before any handler runs,
+  so handlers assume a verified event delivered once. Ordering is reconciled by the run state machine
+  and never inferred from arrival order; a failed phase of processing is retryable and observable,
+  never lossy.
+- Outbound side effects are queued as idempotent jobs keyed by the inbound event that requested them,
+  so an inbound retry cannot double-write to the repository.
+- Trigger labels, command syntax and reply copy, per-command role requirements, merge-means-delivery
+  semantics, and the concrete values of windows and de-duplication keys are **not** governance. They
+  belong to `specs/009-*` and `specs/010-*`, and are captured for those specs in
+  [`docs/business-rules/github-approval-surface.md`](../../docs/business-rules/github-approval-surface.md).
+
+Rationale: keeping approval inside the source host preserves the audit trail, review history and CI
+gates that a bespoke approval button would bypass. Only "no other path may exist" needs to be
+governance — that is precisely what a later convenience feature would otherwise reintroduce.
 
 ### VIII. Provider Neutrality via `ISourceProvider`
 
@@ -235,11 +244,11 @@ organization uses.
 - `after` hooks evaluate and react: the Judge scores a phase artifact on **Completeness,
   Correctness, Specificity, Measurability** and stores each dimension plus the arithmetic mean as
   `JudgeScore`.
-- The Judge feedback loop is bounded: default 1 revision attempt, hard maximum 3 per phase
-  (project-configurable within that range), stopping early when the mean reaches the project
-  threshold (default 85) or when the remaining budget cannot cover another attempt. Every attempt,
-  score, and rejection reason is recorded; an exhausted loop ends with a `JudgeExhausted` timeline
-  event and a PR comment, never a silent pass.
+- The Judge feedback loop is bounded: an attempt ceiling and a pass threshold, both configurable per
+  project within a range fixed by the owning spec (see *Ratified Defaults*). An unbounded loop is a
+  defect, as is a loop that can pass a phase without a recorded score. Each attempt, score and
+  rejection reason is recorded; an exhausted loop ends with a `JudgeExhausted` timeline event and a
+  review request on the source host — never a silent pass.
 - Per-phase agent selection (provider, model, temperature, rules, skills from the skill library —
   built-in Spec Kit skills plus org-authored skills) is resolved through an immutable
   `AgentProfileSnapshot` copied onto the run, so a later config edit cannot change history or
@@ -255,8 +264,9 @@ organization uses.
 - Budgets at organization and project level are **hard stops**, enforced in the dispatch path before
   a provider call (estimated cost of the planned call vs. remaining budget) and reconciled after
   (actual spend accumulated). On breach the run transitions to `BudgetBlocked`, emits a timeline
-  event, comments `/cost`-style detail on the PR, and stops scheduling further phases. A soft
-  warning fires at 80 % consumption. Nothing is truncated or billed silently.
+  event, exposes the spend breakdown on the run's cost view, and stops scheduling further phases.
+  Nothing is truncated or billed silently; the warning threshold and stop policy values are specified
+  by the metering spec, not here.
 - The Mock provider is deterministic: fixed token counts, latency, and cost per model alias, so
   budget, ledger, and dashboard maths are assertable in tests without network or spend.
 - Dashboards (by phase, model, role, day, project) read only from the metering ledger — one
@@ -392,8 +402,10 @@ lets eleven screens stay consistent while the backend grows.
   `docs(001): spec` → `docs(001): clarify + plan` → `docs(001): tasks` →
   `feat(001): implement phase N` (≤ 10 tasks) → `test(001): integration for …`. Conventional
   Commits; scope = spec number. Never mix spec artifacts and code in one commit.
-- **Gate sequence per spec**: specify → (clarify) → plan → constitution check → (checklist) →
-  tasks → (analyze) → implement in ≤ 10-task phases → converge → review → merge.
+- **Gate sequence per spec**: specify → plan → constitution check → tasks → implement in ≤ 10-task
+  phases → converge → review → merge. The optional enhancement steps slot in as
+  `(clarify)` after specify, `(checklist)` after plan, and `(analyze)` after tasks; skipping one is
+  recorded in `plan.md`, and no optional step may block a phase gate.
 - **Constitution check** (from `plan.md`) is a hard gate: any "❌" needs a written justification in
   a "Complexity Tracking" section or the plan is rejected. Third-party deps, schema changes,
   provider integrations, anything touching Principles V/VI/IX, and any deviation from the design
@@ -438,9 +450,12 @@ lets eleven screens stay consistent while the backend grows.
 - Any principle that cannot be verified by a test, a reviewable artifact, or a lint rule is
   considered mis-drafted and MUST be reworded at the next amendment.
 
-## Defaults Adopted in v1.0.0
+## Ratified Defaults
 
-Adopted here so specs do not relitigate them; change by amendment (MAJOR/MINOR as applicable).
+Adopted here so specs do not relitigate them; change by amendment (MAJOR/MINOR as applicable). These
+are **development-time defaults**, not frozen product configuration — where a value is something a
+tenant or project may legitimately choose, the owning spec documents the configuration and this list
+only fixes the starting default and its safe bounds.
 
 1. CQRS is in-process command/query dispatch with one handler per request; MediatR-style free
    packages are allowed, a mediator framework is not required. No event sourcing, no external bus.
@@ -448,17 +463,19 @@ Adopted here so specs do not relitigate them; change by amendment (MAJOR/MINOR a
    at-least-once, so consumers are idempotent.
 3. Tenant resolution precedence: webhook connection → project id → membership claim from the token.
    Subdomains/URL-based tenancy are out of scope for v1.
-4. Judge thresholds: mean ≥ 85 to pass a phase, 1 revision attempt by default, ≤ 3 hard maximum.
+4. Judge loop defaults: mean ≥ 85 passes a phase, 1 revision attempt, ≤ 3 hard maximum. The *bounds*
+   are governance (Principle IX: the loop must be finite); the *values* are owned by `specs/008-*`.
 5. Budget semantics: 80 % soft warning, 100 % hard stop at the org and project level; no negative
    balance grace.
 6. Pricing rows are immutable per version; org overrides are additive rows, and every ledger entry
    stores the price version it was computed from.
 7. Mock LLM and Simulated repository are first-class providers (`mock`, `simulated`) selectable in
    production, not test-only fixtures — they back the demo path and the pricing/behaviour tests.
-8. Webhook replay window is 300 s and delivery ids are unique per connection forever (not per day).
+8. Verified-ingress defaults for the first build: 300 s replay window, delivery ids unique per
+   connection forever (not per day). `specs/009-*` owns the protocol and may restate either value.
 9. Angular consumes generated OpenAPI clients; hand-written service files are the exception and need
    a reason in `plan.md`.
 10. `Public/Desgin/index.html` stays at its current path and remains the single design reference;
     implementation-specific tokens live in `client/agentix-web` styles, not in new mock files.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-12
+**Version**: 1.1.0 | **Ratified**: 2026-09-12 | **Last Amended**: 2026-09-12

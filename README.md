@@ -101,13 +101,19 @@ cd client/agentix-web && npm run lint && npm test && npm run build
 /speckit-clarify           # optional: resolve ambiguities, answers appended to spec.md
 /speckit-plan              # plan.md, research.md, data-model.md, contracts/, quickstart.md
 /speckit-tasks             # tasks.md, phases of ≤10 tasks with [P] parallelisable markers
-/speckit-analyze           # spec/plan/tasks consistency report
+/speckit-analyze           # optional: spec/plan/tasks consistency report (run after tasks)
 /speckit-implement         # execute one phase at a time, build+test gate between phases
 /speckit-converge          # reconcile what is missing after implementation
 /speckit-taskstoissues     # optional: publish tasks as GitHub issues
 ```
 
+`/speckit-clarify`, `/speckit-analyze` and `/speckit-checklist` are **optional enhancement** commands
+(upstream Spec Kit classifies them that way): run them where the spec carries state machines, money,
+authorization or UI deviation; skip and note the reason otherwise.
+
 Full guidance, spec sequence, and quality gates: [docs/SPEC-DRIVEN-PLAYBOOK.md](docs/SPEC-DRIVEN-PLAYBOOK.md).
+Product behaviour awaiting its spec (approval commands, role matrix, webhook protocol values):
+[docs/business-rules/github-approval-surface.md](docs/business-rules/github-approval-surface.md).
 
 ## Roadmap (planned specs)
 
