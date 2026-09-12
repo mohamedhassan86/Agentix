@@ -20,6 +20,6 @@ export default defineConfig({
   schema: './prisma/schema.prisma',
   datasource: {
     // Priority: System Env > .env.local > .env
-    url: process.env.DATABASE_URL,
+    url: process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL,
   },
 });
