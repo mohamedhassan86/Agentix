@@ -8,6 +8,16 @@
 
 **Input**: User description: "Build the foundational identity and multi-tenancy layer for a multi-tenant SaaS platform. First product feature. Actors: new visitor, registered user creating an organization, Owner/Admin inviting by email, invitee accepting, multi-org member switching, authenticated user under role enforcement, and a platform application administrator who belongs to no organization but can inspect any organization. Core: user accounts (email + password), organizations with unique slug, membership with exactly one Owner and roles Viewer < Member < Admin < Owner, invitations with expiring tokens, sessions that carry user + active organization + role, and fail-closed tenant isolation on every organization-scoped action. Email verification is modeled now; the create/join gate is deferred. Organization delete is logical, not physical."
 
+## Clarifications
+
+### Session 2026-09-12
+
+- Q: When a person who belongs to more than one organization signs in, which organization should be active? → A: None until they pick in the switcher (sign-in succeeds with no active organization; they must choose before tenant data appears)
+- Q: If someone who is not a member of an organization asks for that organization's data, should the product admit that the organization exists? → A: Not found for guessed ids; explicit no-access only if they used to be a member
+- Q: After several wrong password attempts on sign-in, what should happen? → A: After 5 failed attempts, reject further tries for 15 minutes using the same generic sign-in error (for existing and unknown emails)
+- Q: How long should an email verification link stay valid? → A: 24 hours
+- Q: If the invitation message cannot be delivered, should the pending invitation still be created? → A: Yes — create pending; Admins can see it and resend
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Register and sign in (Priority: P1)
@@ -22,11 +32,12 @@ A new visitor creates an account with email, display name, and password, then si
 
 1. **Given** a new visitor, **When** they register with a valid unique email, display name, and password meeting the password rules, **Then** an account is created in an unverified state, a verification message with an expiring single-use link is issued to that email, and they can sign in immediately.
 2. **Given** a visitor, **When** they register with an email that already belongs to an account (comparison is case-insensitive), **Then** no second account is created and the visitor is told registration did not succeed, without revealing whether the email is already registered beyond a generic failure.
-3. **Given** a registered user, **When** they sign in with the correct email and password, **Then** an authenticated session is established that carries their user identity and, if they have an active organization, that organization and their role in it.
+3. **Given** a registered user, **When** they sign in with the correct email and password, **Then** an authenticated session is established that carries their user identity and **no active organization** (even if they belong to one or more). Organization-scoped data is not shown until they select an organization from the switcher or create one.
 4. **Given** a registered user, **When** they sign in with an incorrect password, **Then** access is denied with a generic authentication error (no indication whether the email exists).
-5. **Given** an authenticated user, **When** they sign out, **Then** the session ends and subsequent organization-scoped actions are rejected until they sign in again.
-6. **Given** an unverified account with a valid unused verification link, **When** the person opens that link, **Then** the account becomes verified and the link cannot be used to verify again.
-7. **Given** an already-verified account, **When** the original verification link is opened again, **Then** the system does not error as a new verification; it reports that the account is already verified and does not change other account state.
+5. **Given** five consecutive failed sign-in attempts for the same email (whether or not an account exists), **When** a sixth attempt is made within 15 minutes, **Then** it is rejected with the same generic authentication error as a wrong password; after 15 minutes, sign-in may be tried again.
+6. **Given** an authenticated user, **When** they sign out, **Then** the session ends and subsequent organization-scoped actions are rejected until they sign in again.
+7. **Given** an unverified account with a valid unused verification link, **When** the person opens that link, **Then** the account becomes verified and the link cannot be used to verify again.
+8. **Given** an already-verified account, **When** the original verification link is opened again, **Then** the system does not error as a new verification; it reports that the account is already verified and does not change other account state.
 
 ---
 
@@ -100,12 +111,14 @@ A person may belong to many organizations and holds a distinct role in each. The
 
 **Acceptance Scenarios**:
 
-1. **Given** a user who belongs to two organizations, **When** they switch the active organization, **Then** all subsequent views and actions reflect only the newly selected organization's data and that user's role in it.
-2. **Given** any authenticated request for an organization-scoped resource, **When** the requesting user is not a member of that organization and is not a platform administrator, **Then** access is denied regardless of their role elsewhere, even if the resource identifier or slug is known or guessed, and the response body contains no data from the foreign organization.
-3. **Given** a member of Org 1, **When** they present Org 2's identifier as if it were active, **Then** the request is denied; the client cannot override the active organization to one they do not belong to.
-4. **Given** a platform application administrator (no organization memberships), **When** they inspect an organization, **Then** they can read that organization's profile, members, and invitations, and they still cannot invite, remove, change roles, rename, transfer, or delete.
-5. **Given** a platform application administrator, **When** a regular member attempts to obtain the same cross-organization inspect privilege, **Then** access is denied.
-6. **Given** a user whose membership in the active organization is removed, **When** they make a subsequent organization-scoped request, **Then** access is denied and they must select another organization they still belong to (or create/join one).
+1. **Given** a user who belongs to two organizations and has just signed in, **When** they have not yet selected an organization, **Then** no organization's profile, members, or invitations are shown; the org switcher lists both organizations (with the user's role in each) and they must pick one to continue.
+2. **Given** a user who belongs to two organizations, **When** they switch the active organization, **Then** all subsequent views and actions reflect only the newly selected organization's data and that user's role in it.
+3. **Given** any authenticated request for an organization-scoped resource, **When** the requesting user is not a member of that organization, has never been a member of it, and is not a platform administrator, **Then** the outcome is indistinguishable from requesting an organization that does not exist: no tenant data, no admission that the organization exists.
+4. **Given** a former member of an organization (removed, left, or the organization was logically deleted), **When** they request that organization's data and they are not a platform administrator, **Then** they receive an explicit no-access denial and no tenant data.
+5. **Given** a member of Org 1 who has never been a member of Org 2, **When** they present Org 2's identifier as if it were active, **Then** the outcome is indistinguishable from a non-existent organization; the client cannot override the active organization to one they do not belong to.
+6. **Given** a platform application administrator (no organization memberships), **When** they inspect an organization, **Then** they can read that organization's profile, members, and invitations, and they still cannot invite, remove, change roles, rename, transfer, or delete.
+7. **Given** a platform application administrator, **When** a regular member attempts to obtain the same cross-organization inspect privilege, **Then** access is denied.
+8. **Given** a user whose membership in the active organization is removed, **When** they make a subsequent organization-scoped request, **Then** they receive an explicit no-access denial for that organization and must select another organization they still belong to (or create/join one).
 
 ---
 
@@ -114,6 +127,7 @@ A person may belong to many organizations and holds a distinct role in each. The
 - **Last Owner leaves or deletes their account**: blocked until they transfer ownership to another existing member. An organization cannot be left with zero Owners.
 - **Last Owner tries to transfer to a non-member**: rejected; transfer target must already be a member of that organization.
 - **Same email invited twice to the same organization while a prior invite is still pending**: rejected; the existing pending invitation can be resent instead. A new invite is allowed only when no pending invitation exists for that email and organization (expired, revoked, or accepted-and-later-left are not "pending").
+- **Invitation message cannot be delivered**: the pending invitation is still created and listed; Owner/Admin resend issues a new token. Delivery failure does not roll back the invite and does not invent a fifth invitation status.
 - **Invitee is already a member of that organization**: rejected with a clear already-a-member error; no new invitation is created and the existing role is unchanged.
 - **Invite to an email the inviter themselves uses**: allowed only if they are not already a member (they are); therefore rejected as already a member.
 - **Accept invite while signed in as a different email than the invitation**: rejected; the person must sign in (or register) as the invited email.
@@ -127,6 +141,7 @@ A person may belong to many organizations and holds a distinct role in each. The
 - **Deleting an organization that still has members other than the Owner**: allowed only by the Owner after an explicit confirmation step. Deletion is logical (not physical): the organization is marked deleted, all memberships lose access immediately, pending invitations become revoked, and a tombstone remains so the slug stays reserved and history can be audited later. No other organization's data is affected.
 - **Owner deletes organization they are not active in**: the action is scoped to the organization they are acting on (which they own); after logical delete, if it was their active organization, active organization is cleared.
 - **User with zero organizations after register**: they see an empty-state that offers create-organization or accept-an-invite; they cannot access any tenant data.
+- **Sign-in never restores a previous active organization**: even a user with many memberships starts the session with none selected and must pick from the switcher (or create) before tenant data appears. Accepting an invitation adds membership but does not by itself make that organization active.
 - **Platform administrator with leftover memberships**: a platform administrator account MUST have zero organization memberships; granting the privilege is rejected while any membership exists, and inviting a platform administrator into an organization is rejected.
 - **Case and whitespace in email**: emails are stored and matched case-insensitively and trimmed; `Alex@Org.com` and `alex@org.com` are the same person.
 - **Password never recoverable**: passwords are never returned, displayed, or written to logs, messages, or error details.
@@ -140,11 +155,11 @@ A person may belong to many organizations and holds a distinct role in each. The
 
 - **FR-001**: The system MUST allow a visitor to register a user account with a unique email, a display name, and a password. Email uniqueness is case-insensitive.
 - **FR-002**: The system MUST require passwords of at least 8 characters. The password MUST never be stored in recoverable form, returned in any response, or written to logs, messages, or error details.
-- **FR-003**: The system MUST authenticate registered users with email and password and MUST reject invalid credentials with a generic authentication error.
+- **FR-003**: The system MUST authenticate registered users with email and password and MUST reject invalid credentials with a generic authentication error. After 5 consecutive failed sign-in attempts for the same email within 15 minutes, further attempts for that email MUST be rejected for 15 minutes using that same generic error, whether or not the email is registered. Successful sign-in MUST clear the failure count for that email.
 - **FR-004**: The system MUST support sign-out, after which the session cannot be used to perform authenticated actions.
-- **FR-005**: An authenticated session MUST carry: the user identity; the currently active organization (or an explicit empty value when the user has none); and that user's role in the active organization (or an explicit empty value). The client MUST NOT be trusted to assert organization or role; the server resolves both.
+- **FR-005**: An authenticated session MUST carry: the user identity; the currently active organization (or an explicit empty value); and that user's role in the active organization (or an explicit empty value). Sign-in MUST start with an empty active organization even when the user has memberships; an organization becomes active only when the user explicitly selects one they belong to (org switcher) or creates one. The client MUST NOT be trusted to assert organization or role; the server resolves both.
 - **FR-006**: A user account is a single global identity. A user MAY belong to zero, one, or many organizations, with a distinct role per organization.
-- **FR-007**: Registration MUST create the account in an unverified state and MUST issue a verification message containing a secure, expiring, single-use link. Completing verification marks the account verified. Reuse of a consumed link on an already-verified account reports "already verified" without changing other state.
+- **FR-007**: Registration MUST create the account in an unverified state and MUST issue a verification message containing a secure, single-use link that expires 24 hours after issue. Completing verification with a valid unexpired unused link marks the account verified. Reuse of a consumed link on an already-verified account reports "already verified" without changing other state. An expired or revoked link MUST be rejected; a signed-in user MUST be able to request a new 24-hour link.
 - **FR-008**: This phase MUST NOT block creating or joining an organization on unverified email. A later phase will enforce "verified before create/join"; the verified/unverified state and verification completion path MUST already exist so that phase can turn the gate on without a data model change.
 
 #### Organization
@@ -172,7 +187,7 @@ A person may belong to many organizations and holds a distinct role in each. The
 
 #### Invitations
 
-- **FR-026**: Owner and Admin MUST be able to invite a person by email to the active organization with role Admin, Member, or Viewer. Inviting as Owner MUST be rejected.
+- **FR-026**: Owner and Admin MUST be able to invite a person by email to the active organization with role Admin, Member, or Viewer. Inviting as Owner MUST be rejected. A pending invitation MUST be created even if the invitation message cannot be delivered; Owner/Admin can resend.
 - **FR-027**: An invitation MUST carry a secure, unguessable, expiring token, the target email, the organization, the assigned role, the inviter, timestamps, and a status of pending, accepted, expired, or revoked.
 - **FR-028**: Invitations MUST expire 7 days after issue. Accepting after expiry MUST fail as expired. Resend (Owner/Admin) of a pending or expired invitation MUST issue a new token and a new 7-day window and MUST invalidate the previous token. Resend of accepted or revoked invitations MUST be rejected.
 - **FR-029**: Owner and Admin MUST be able to revoke a pending invitation. Revoked invitations cannot be accepted. A new invitation to the same email MAY be created after revoke.
@@ -182,10 +197,10 @@ A person may belong to many organizations and holds a distinct role in each. The
 
 #### Tenant isolation and platform administrator
 
-- **FR-033**: Every request that reads or writes organization-scoped data MUST resolve (user, organization, role) on the server and MUST fail closed (deny, no payload from the foreign tenant) when the user is not a member of that organization, except FR-035.
+- **FR-033**: Every request that reads or writes organization-scoped data MUST resolve (user, organization, role) on the server and MUST fail closed (no payload from the foreign tenant) when the user is not a current member, except FR-035. If the user has never been a member of that organization, the denial MUST be indistinguishable from a non-existent organization. If the user was previously a member, the denial MUST be an explicit no-access message. Neither form MAY include tenant data.
 - **FR-034**: The client MUST NOT supply an organization identifier to override the active organization when the session already implies it, except for the explicit switch-organization action, which MAY only target an organization the user currently belongs to.
 - **FR-035**: A platform application administrator is a user account with a platform-level privilege, not an organization role. They MUST belong to zero organizations. They MAY read any organization's identity surface (profile, members, invitations) for inspection. They MUST NOT mutate tenant data (invite, revoke, resend, role-change, remove, leave, rename, transfer, delete, create organization on someone else's behalf). Granting this privilege MUST be out-of-band (not self-serve) and MUST be rejected while the account has any membership.
-- **FR-036**: A user MUST be able to switch active organization among organizations they currently belong to. After a switch, all subsequent views and actions MUST use only the newly selected organization's data and the user's role there.
+- **FR-036**: A user MUST be able to switch active organization among organizations they currently belong to. After a switch, all subsequent views and actions MUST use only the newly selected organization's data and the user's role there. Until a selection (or a create that becomes active), organization-scoped screens MUST NOT show tenant data.
 - **FR-037**: Membership removal, role downgrade, organization logical delete, and invitation revoke MUST take effect on the next evaluated request (no residual privileged access from a stale session snapshot).
 
 #### Account lifecycle
@@ -195,7 +210,7 @@ A person may belong to many organizations and holds a distinct role in each. The
 
 #### Screens and empty/permission states
 
-- **FR-040**: The product MUST present: a sign-up screen, a sign-in screen, an authenticated empty-state for users with zero organizations (create or accept invite), an org switcher listing the user's organizations with role and a create-organization action, a Members & roles view (member list, role counts, permission matrix, pending invitations for Admin/Owner), an invite-member dialog (email + role Admin/Member/Viewer), a create-organization dialog (name + slug), and organization settings that include name/slug for Owner and a confirmation step for logical delete and for ownership transfer.
+- **FR-040**: The product MUST present: a sign-up screen, a sign-in screen (no organization picker), an authenticated empty-state for users with zero organizations (create or accept invite), a post-sign-in choose-organization state for users who have memberships but no active organization (org switcher listing each organization with the user's role, plus create-organization), an org switcher available after a selection, a Members & roles view (member list, role counts, permission matrix, pending invitations for Admin/Owner), an invite-member dialog (email + role Admin/Member/Viewer), a create-organization dialog (name + slug), and organization settings that include name/slug for Owner and a confirmation step for logical delete and for ownership transfer.
 - **FR-041**: Role-gated controls MUST be disabled with a reason, not silently hidden. Loading, empty, error, and permission-denied states MUST exist for the identity screens.
 - **FR-042**: A brand-new user MUST be able to go from registration to owning an organization in at most three screens (register, optional verification, create organization). Combining register and first-organization on one screen is an allowed equivalent.
 
@@ -226,6 +241,8 @@ Legend: **Y** = allowed, **N** = denied, **—** = not applicable. "Reserved" ro
 | Logically delete organization | Y | N | N | N | N | Confirmation required |
 | Delete own account | Y* | Y | Y | Y | Y | \*Blocked if sole Owner of any org |
 | View dashboards, runs, spec artifacts (reserved) | Y | Y | Y | Y | N | Later feature |
+| View cost / spend (reserved) | Y | Y | Y | Y | N | Later feature; Viewer  |
+| View dashboards, runs, spec artifacts (reserved) | Y | Y | Y | Y | N | Later feature |
 | View cost / spend (reserved) | Y | Y | Y | Y | N | Later feature; Viewer is read-only including cost |
 | Start runs / simulations (reserved) | Y | Y | Y | N | N | Later feature |
 | Comment / approve within workflow (reserved) | Y | Y | Y | N | N | Later feature; approval still only via verified source-host ingress |
@@ -242,7 +259,7 @@ Legend: **Y** = allowed, **N** = denied, **—** = not applicable. "Reserved" ro
 - **Organization**: A tenant (company or team). Key attributes: name, unique slug, logical-deleted state, timestamps. Relationships: exactly one Owner membership, zero or more other memberships, zero or more invitations. All future resources belong to exactly one organization.
 - **Membership**: The association of one user to one organization with exactly one role (Viewer, Member, Admin, Owner). A user has at most one membership per organization. Removing it immediately ends access.
 - **Invitation**: An offer for an email to join one organization with a specific non-Owner role. Key attributes: email, role, status (pending / accepted / expired / revoked), expiry, inviter, secure token. Visible to Owner/Admin of that organization.
-- **Session context**: The resolved (user, active organization or empty, role or empty) attached to an authenticated session. Active organization is only ever one of the user's current memberships (platform administrators have none and use an inspect path instead).
+- **Session context**: The resolved (user, active organization or empty, role or empty) attached to an authenticated session. Sign-in always starts empty. Active organization is only ever one of the user's current memberships, set by an explicit switch or by creating an organization (platform administrators have none and use an inspect path instead).
 - **Identity event (audit-ready record)**: An append-only record of membership and organization lifecycle facts (created, invited, accepted, revoked, expired, role changed, ownership transferred, member removed, member left, organization logically deleted, account logically deleted). No viewer UI in this spec.
 
 ## Success Criteria *(mandatory)*
@@ -250,13 +267,14 @@ Legend: **Y** = allowed, **N** = denied, **—** = not applicable. "Reserved" ro
 ### Measurable Outcomes
 
 - **SC-001**: A brand-new user can go from registration to owning an organization in at most 3 screens and under 3 minutes on a typical connection, without contacting support.
-- **SC-002**: 100% of organization-scoped actions reject cross-tenant access attempts: a member of Org A requesting Org B's data by identifier or slug receives a denial and the response contains zero bytes of Org B's data. Verified by automated tests for every in-scope action, not by review alone.
+- **SC-002**: 100% of organization-scoped actions reject cross-tenant access attempts and return zero tenant data from the foreign organization. A caller who has never been a member of Org B cannot distinguish Org B from a non-existent organization. A former member of Org B receives an explicit no-access denial. Verified by automated tests for every in-scope action, not by review alone.
 - **SC-003**: The permission matrix (Owner / Admin / Member / Viewer / platform admin × every in-scope action) is fully enumerated in this spec and covered by automated tests: every "N" cell produces an explicit permission error; every "Y" cell succeeds for an otherwise valid request. No in-scope action remains ambiguous.
 - **SC-004**: An organization never has zero Owners or more than one Owner, including under concurrent transfer, leave, role-change, and delete attempts. Verified by concurrent tests.
 - **SC-005**: 100% of Member and Viewer attempts to invite, change roles, or remove members are denied with a visible permission error (not a silent no-op), measured in automated tests.
-- **SC-006**: After an org switch, 100% of subsequent organization-scoped reads return only the newly selected organization's data (sampled across profile, members, and invitations).
+- **SC-006**: After an org switch, 100% of subsequent organization-scoped reads return only the newly selected organization's data (sampled across profile, members, and invitations). Immediately after sign-in and before any switch or create, 100% of organization-scoped reads return no tenant data.
 - **SC-007**: Expired invitations (age > 7 days) fail accept in 100% of attempts; resend by Owner/Admin restores a new 7-day pending invitation.
 - **SC-008**: Platform administrators can inspect any organization's identity surface and fail 100% of mutation attempts on tenant data.
+- **SC-009**: After 5 consecutive failed sign-in attempts for an email, 100% of further attempts within 15 minutes fail with the same generic error used for a wrong password, including when the email is not registered.
 
 ## Assumptions
 
@@ -274,6 +292,7 @@ Legend: **Y** = allowed, **N** = denied, **—** = not applicable. "Reserved" ro
 - The design mock's sign-up form also collects organization name, data region, and seats. Region and seats are billing/residency and out of scope. Combining first-organization with registration on one screen is allowed (FR-042).
 - Branding in the design mock says "SpecOps"; user-facing copy for this product uses **Agentix**.
 - No organization identifier is taken from the client to bypass the active organization except the explicit switch action (FR-034).
+- Sign-in does not restore last-used organization and does not include an organization picker (a Design Delta versus the mock sign-in form). Selection happens only via the org switcher or by creating an organization.
 - Future features MUST reuse this membership and role model; they MUST NOT introduce a parallel permission system.
 
 ## Out of Scope
@@ -306,5 +325,12 @@ Re-read performed: `.specify/memory/constitution.md` v1.1.0 (2026-09-12) and all
 | IX Hooks / metering | No | |
 | X Test-gated DoD | Yes | Permission-matrix tests, concurrent Owner-invariant tests, and per-action cross-tenant tests are success criteria. |
 | XI Design-guideline fidelity | Yes | Auth, org switcher, Members & roles, invite dialog, create-organization dialog, settings danger-zone confirmation. Deviations (no SSO/SCIM, no invite-as-Owner, Viewer sees cost later, Agentix naming) are listed in Assumptions for a Design Delta in `plan.md`. |
+
+No constitution exception is requested. Isolation controls are not deferred.
+ Delta in `plan.md`. |
+
+No constitution exception is requested. Isolation controls are not deferred.
+sted. Isolation controls are not deferred.
+ Delta in `plan.md`. |
 
 No constitution exception is requested. Isolation controls are not deferred.
