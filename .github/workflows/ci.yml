@@ -170,14 +170,22 @@ jobs:
           TEST_EXIT=${PIPESTATUS[0]}
           echo "## Test Output" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 200 test-output.txt >> $GITHUB_STEP_SUMMARY
+          tail -n 300 test-output.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           if [ $TEST_EXIT -ne 0 ]; then
-            echo "=== TEST FAILURES (last 500 lines) ==="
-            tail -n 500 test-output.txt
+            echo "=== TEST FAILURES (last 800 lines) ==="
+            tail -n 800 test-output.txt
             echo "=== END TEST OUTPUT ==="
-            # Also try to extract failed tests
-            grep -A 10 "FAIL\|×\|✕\|AssertionError\|Error:" test-output.txt | tail -n 300 || true
+            echo "=== FAILED TEST FILES ==="
+            grep -E "FAIL|×|✕" test-output.txt | tail -n 50 || true
+            echo "=== LISTING TEST FILES ==="
+            ls tests/**/*.test.ts tests/**/*.test.tsx 2>/dev/null | head -n 50
+            # Try running each test file individually to isolate
+            echo "=== ISOLATING FAILING TESTS ==="
+            for f in tests/unit/infrastructure/config.test.ts tests/unit/infrastructure/logger.test.ts tests/unit/application/correlation.test.ts; do
+              echo "--- Running $f ---"
+              npm test -- --run "$f" 2>&1 | tail -n 20 || true
+            done
             exit $TEST_EXIT
           fi
         env:
@@ -193,18 +201,39 @@ jobs:
           path: test-output.txt
           retention-days: 7
 
+      - name: Save failure log to repo for debugging
+        if: failure()
+        run: |
+          echo "Saving failure log to ci-failure-log.txt"
+          mkdir -p /tmp/failure-log
+          cp test-output.txt /tmp/failure-log/ci-failure-log.txt || true
+          # Also save last 1000 lines as separate file for quick view
+          tail -n 1000 test-output.txt > ci-failure-log.txt || true
+          echo "=== CI FAILURE LOG ===" >> ci-failure-log.txt
+          echo "Run ID: ${{ github.run_id }}" >> ci-failure-log.txt
+          echo "Job ID: ${{ github.job }}" >> ci-failure-log.txt
+          cat ci-failure-log.txt | head -n 200
+          # Configure git and push log file to branch (only for push events, not PR from fork)
+          if [ "${{ github.event_name }}" == "push" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add ci-failure-log.txt
+            git commit -m "ci: save failure log for run ${{ github.run_id }}" || echo "No changes to commit"
+            git push origin HEAD:${{ github.ref_name }} || echo "Push failed"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Comment PR with test failures on failure
         if: failure() && github.event_name == 'pull_request'
         run: |
           echo "Posting test failure comment to PR..."
           # Truncate to 60000 chars for comment limit
-          FAIL_SUMMARY=$(tail -n 300 test-output.txt | head -c 60000)
-          gh pr comment ${{ github.event.pull_request.number }} --body "### ❌ Tests failed in CI
-
-          \`\`\`
-          $FAIL_SUMMARY
-          \`\`\`
-          " || echo "Failed to comment PR"
+          FAIL_SUMMARY=$(tail -n 500 test-output.txt | head -c 60000)
+          # Escape for JSON
+          echo "$FAIL_SUMMARY" > /tmp/fail.txt
+          gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/fail.txt || echo "Failed to comment PR with file, trying direct"
+          gh pr comment ${{ github.event.pull_request.number }} --body "### ❌ Tests failed in CI - see logs" || echo "Failed to comment PR"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
