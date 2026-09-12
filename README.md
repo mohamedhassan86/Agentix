@@ -1,146 +1,214 @@
-# Agentix
+# Agentix Foundation
 
-**Multi-tenant, spec-driven AI delivery platform.** Register → create an organisation → invite
-members with roles → create projects, each mapped to a repository → an agent runs each SDLC phase
-(specify → clarify → plan → tasks → implement) and commits its artifact through GitHub. Every human
-decision happens in the repository. Every LLM call is metered to the cent.
+**Solution foundation for tenancy and identity**: a compiling application host, enforced architecture boundaries, stable API and error baseline, durable persistence and background-work foundations, observability, canonical design tokens, continuous-integration and test gates, with no business entities.
 
-> Built with [Spec Kit](https://github.com/github/spec-kit). This repo is both the product and the
-> dogfood: every feature starts as `specs/NNN-feature/spec.md` and is governed by
-> [.specify/memory/constitution.md](.specify/memory/constitution.md).
+This is **Feature 001** - the prerequisite for all later features (tenancy, secrets, projects, agents, metering, etc.).
 
----
+## What this foundation provides
 
-## What the product does
+- **Runnable hosts**: One Next.js 16 App Router web app and one Node worker, both start keylessly without paid provider credentials
+- **Health**: Liveness (process only) at `/health/live` and readiness (bounded 2s DB/schema probe) at `/health/ready`, both with `X-Correlation-Id` and `Cache-Control: no-store`
+- **Versioned ping**: `GET /api/v1/ping` exercises versioned query dispatch, correlation propagation, RFC 9457 errors
+- **Durable work**: Transactional outbox with `FOR UPDATE SKIP LOCKED` claim, bounded retries (base 1s cap 30s jitter, max 3), lease reaper, idempotent handler, exactly-once effect
+- **Foundation demo**: Non-business `POST /api/v1/foundation/work` and `GET /api/v1/foundation/work/{requestId}` - atomic request+work, idempotency key, same-origin Location, disabled in production by default
+- **Architecture**: Fixed `src/{domain,application,infrastructure,app,worker}` layout, dependency-cruiser enforces inward-only, zero violations in prod graph, forbidden fixtures fail
+- **Observability**: Pino JSON logs with child diagnostic context, recursive redaction (authorization, cookie, password, token, secret, key, connection), body/payload omission, stable error codes [REDACTED], OpenTelemetry traces/metrics with bounded attributes, W3C propagation, correlation_id/work_id in logs not metric labels
+- **Design**: Canonical tokens from `Public/Desgin/index.html` - --bg, --surface, --border, --text, --primary, --radius, etc., variable-based components .card .btn .status-chip .banner .field, visible focus, 4.5:1 body 3:1 icon contrast, reduced-motion, responsive, no external font requests
+- **Gates**: One standard sequence `npm run lint && npm test && npm run build && npm run license:check && npm run architecture:check && npm run openapi:check && npm run test:policy` - same locally and in CI
 
-| Capability | Behaviour |
-| --- | --- |
-| **Tenancy** | Organisations, members with roles `owner` / `admin` / `member` / `viewer`, projects mapped to a repo. Shared schema, `org_id` on every tenant table, ORM-level global query filters. |
-| **Agent pipeline** | One agent per phase. Per-phase selection of provider (Anthropic / OpenAI / Azure OpenAI / Gemini / OpenRouter / **Mock**), model, temperature, rules, and skills from a library (built-in Spec Kit skills + org-authored skills). |
-| **Hooks as the bus** | `before` hooks gather read-only repo context (tree, README, constitution, specs, search, commits). `after` hooks run the **Judge** — score = mean of Completeness, Correctness, Specificity, Measurability — with a bounded feedback loop back to the producing agent. Every hook run and inter-agent event lands on the run timeline. |
-| **GitHub as the UI for approval** | Issue labelled `sdlc` (or a `/specify` comment) starts a run; the bot commits `specs/NNN-feature/*.md`, opens a **draft PR**, and asks for `/approve`, `/revise <feedback>`, `/reject`, `/answer`, `/status`, `/cost`, `/retry`. Merging the PR = delivered. The console has **no approve button**; its simulator posts through the exact same HMAC-verified webhook path. |
-| **Money** | Every call metered (in / out / cached tokens, latency, cost, status) attributed org → project → run → phase → agent. Org and project budgets are hard stops. Dashboards break spend down by phase, model, role, day, project; pricing table has system defaults plus per-org overrides. |
-| **Secrets** | LLM keys, GitHub tokens, webhook secrets stored with AES-256-GCM envelope encryption: per-org DEK wrapped by a master KEK in a KMS. Plaintext never logged, never returned, never committed. Every read is audited. |
-| **Source providers** | Everything behind a typed `ISourceProvider` contract. GitHub is the first implementation; Azure DevOps ships as a capability-declaring stub. |
+**Out of scope**: No auth, organizations, projects, secrets vault, provider SDKs, runs, metering, billing, webhooks, simulator, approval.
 
-## Architecture
+## Prerequisites
 
+- Node.js 22 LTS (`node --version` should report v22)
+- npm
+- Docker for PostgreSQL 16 (or isolated PostgreSQL 16+ database)
+- No paid provider credentials needed
+
+## Quickstart - Clean checkout to running foundation
+
+```bash
+# 1. Install
+npm ci
+
+# 2. Configure - copy example, set DATABASE_URL
+cp .env.example .env.local
+# Edit .env.local: DATABASE_URL=postgresql://test:test@localhost:5432/agentix_test
+
+# 3. Validate config (fail-fast, no secret leakage)
+npm run config:check
+# Try omitting DATABASE_URL - should fail with setting name and remediation, never prints value
+
+# 4. Start PostgreSQL
+docker run -d --name agentix-pg -p 5432:5432 -e POSTGRES_PASSWORD=test -e POSTGRES_DB=agentix_test postgres:16
+# Or use existing PostgreSQL 16
+
+# 5. Apply migration (apply twice safe)
+npm run prisma:validate
+npm run db:migrate
+npm run db:status
+# Expected: 001_solution_foundation applied, only outbox/attempt and foundation demo tables, no user/org/project/secret/run tables
+
+# 6. Start app and worker (keyless)
+# Terminal 1:
+npm run dev -- --hostname 0.0.0.0
+# Terminal 2:
+npm run worker
+
+# 7. Validate health, ping, correlation
+curl -i http://localhost:3000/health/live
+curl -i http://localhost:3000/health/ready
+curl -i http://localhost:3000/api/v1/ping
+curl -i -H 'X-Correlation-Id: 0199f000-0000-7000-8000-000000000123' http://localhost:3000/api/v1/ping
+curl -i -H 'X-Correlation-Id: malformed-and-too-long' http://localhost:3000/api/v1/ping
+# Expected: 200, status alive/ready/ok, X-Correlation-Id present, valid UUID propagated, malformed replaced not echoed, no-store, no DB details
+
+# 8. Stop PostgreSQL while app running - liveness 200, readiness 503 with dependency database, no connection details, recovery without restart when DB returns
+
+# 9. Prove atomic work and idempotency (with worker running, demo enabled in local)
+curl -i -X POST -H 'Content-Type: application/json' -H 'Idempotency-Key: reviewer-foundation-001' -d '{}' http://localhost:3000/api/v1/foundation/work
+# Follow Location:
+curl -i http://localhost:3000/api/v1/foundation/work/<requestId>
+# Expected: first 202, same key 200 same IDs, terminal succeeded, effectCount 1, no payload/SQL/stack/secret
+
+# 10. Run gates
+npm run lint
+npm test
+npm run build
+npm run architecture:check
+npm run openapi:check
+npm run license:check
+npm run test:policy
+npm run openapi:generate
+
+# Full sequence (same in CI):
+npm run lint && npm test && npm run build && npm run license:check && npm run architecture:check && npm run openapi:check && npm run test:policy
 ```
-┌────────────────────────── Vercel (Next.js app) ───────────────────────────────────────┐
-   browser ───▶ │ UI: App Router · React · typed client · design tokens      /api/v1: thin route handlers│
-   GitHub ────▶ │ webhook ingress (HMAC-verified) · tenant middleware · authz policies · OpenAPI · OTel │
-   ADO ───────▶ │   ├── application    commands/queries + handlers · ports · policies                   │
-                │   ├── domain         rich aggregates · value objects · domain events                  │
-                │   └── infrastructure Prisma · Postgres · LLM providers · ISourceProvider (GitHub /    │
-                │        AzureDevOps stub) · AES-GCM + KMS · outbox · metering · budgets                │
-                └───────────────────────────────────────────┬───────────────────────────────────────────┘
-                                                            │
-            worker (same TypeScript codebase — Node process locally; Vercel function/cron or
-            container in prod): outbox dispatch · hook/agent/Judge execution · metering · budgets
-                                                            │
-                                 ┌─────────────────────────────────────────────────────────────────┐
-                                 ▼                                                                  ▼
-                PostgreSQL (Neon / Supabase / RDS)                                                  KMS / secret manager
-```
-
-Clean architecture, DDD with a rich domain model, CQRS-style dispatch, thin route handlers — one
-Next.js codebase for the UI and the API, worker for durable background work — the binding rules
-are in the [constitution](.specify/memory/constitution.md) (Principles II–IV).
 
 ## Repository layout
 
 ```
-.specify/          Spec Kit scaffolding: memory/constitution.md, templates/, scripts/, skills wiring
-.claude/skills/    /speckit-* skills (specify, clarify, plan, tasks, implement, analyze, checklist,
-                   converge, taskstoissues) + /speckit-git-* (branch, commit, validate)
-specs/             one directory per feature: spec.md plan.md research.md data-model.md contracts/ tasks.md
-docs/              SPEC-DRIVEN-PLAYBOOK.md (how we build), governance/exceptions.md
-Public/Desgin/     index.html — the canonical UI design guideline (path intentionally as-is)
-src/domain         entities · value objects · domain events · errors (pure TypeScript)
-src/application    commands/queries + handlers · ports · DTOs · policies
-src/infrastructure Prisma · Postgres · LLM providers · ISourceProvider · crypto · outbox · telemetry
-src/app            Next.js App Router: pages · route handlers · middleware · server actions
-src/worker         hook/agent execution host · outbox dispatch
-tests/             unit + integration (Vitest + Testcontainers)
+specs/001-solution-foundation/  Feature spec, plan, research, data-model, contracts, tasks, quickstart, checklists
+contracts/openapi/              Generated OpenAPI 3.1 JSON (agentix-v1.json) - committed, drift-checked
+prisma/                         schema.prisma and migrations/001_solution_foundation
+src/domain/                     Pure extension point (no business yet)
+src/application/
+  foundation/                   queries/commands/handlers/dto for health, ping, work (framework-free)
+  shared/                       dispatch, context, errors, ports, work (WorkEnvelope, WorkContext, WorkResult, Registry)
+src/infrastructure/
+  config/                       Immutable loader, fail-fast, bounded, toJSON redacted, non-enumerable databaseUrl
+  observability/                Pino logger, redaction, diagnostic-context, telemetry, metrics, propagation
+  persistence/                  pg pool, prisma client with fallback stub, clock, id-generator, unit-of-work, migration-readiness, foundation-demo-repository, outbox-writer, outbox-query
+  work/                         postgres-work-claimer (SKIP LOCKED), lease-reaper, retry-policy, work-outcome-writer, worker-coordinator
+src/app/
+  health/live/                  Liveness route - no dependency check
+  health/ready/                 Readiness route - bounded 2s probe, dependency category, no connection details
+  api/v1/ping/                  Versioned ping - one parse + one dispatch
+  api/v1/foundation/work/       Demo work create/status - thin routes, environment-gated, idempotency, same-origin Location
+  components/foundation/        foundation-status.tsx - loading/ready/error/retry, text-plus-color, aria-live polite, keyboard, focus, reduced-motion
+  lib/                          composition-root singleton, route-dispatch with correlation/CORS/error/metrics, problem-response, correlation, cors, openapi-registry, api/client (relative URLs)
+  globals.css                   Canonical tokens --bg --surface --border --text --primary --radius, variable-based .card .btn .status-chip .banner .field, focus-visible, reduced-motion, responsive, 200% zoom
+src/worker/                     main.ts with heartbeat, readiness, SIGTERM/SIGINT graceful shutdown ≤30s, composition-root with work registry and coordinator
+tests/
+  architecture/                 dependency-rules, thin-routes, no-business-scope, fixtures
+  contract/foundation/          openapi, scope-inventory
+  integration/
+    api/foundation/             health, ping-and-errors
+    app/                        startup
+    persistence/                foundation-migration, outbox-constraints, atomic-outbox
+    worker/                     concurrent-claim, idempotent-redelivery, retry-policy, lease-recovery, graceful-shutdown, scope-validation
+    observability/              correlation
+    security/                   diagnostic-redaction (zero leakage)
+    performance/                foundation-read (p95 <300ms, probe ≤2s)
+  unit/
+    application/                dispatcher, correlation, errors
+    infrastructure/             config, logger, telemetry-policy
+    ui/foundation/              foundation-status, design-tokens
+  e2e/                          foundation.spec.ts - branding, states, keyboard, focus, aria-live, narrow, 200% zoom, reduced-motion, no fake auth
 ```
 
-## Prerequisites
-
-- Node 22 LTS and npm; Next.js 16+ is scaffolded per project with `create-next-app` (no global CLI)
-- Prisma (per project, via `npx prisma`) for the ORM, client, and migrations
-- Docker Desktop (Testcontainers for integration tests) *or* a Neon/Supabase branch database
-- Python 3.11+ and `uv` for the Spec Kit CLI: `uv tool install -q --from git+https://github.com/github/spec-kit.git specify-cli`
-- A KMS/secret manager for the KEK (local dev falls back to a file-backed protector with a fake key)
-- `gh` CLI authenticated, and a test GitHub repo with webhook rights (optional until spec `006`)
-
-## Local development
+## Architecture enforcement
 
 ```bash
-# 1. database — pick one
-docker run -d --name agentix-pg -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=agentix postgres:16
-
-# 2. app (UI + /api/v1 + webhook ingress, runs on http://localhost:3000)
-npm install && npx prisma migrate deploy && npm run dev
-
-# 3. worker (hooks, agent runs, metering, budget enforcement)
-npm run worker
+npm run architecture:check
+# Runs dependency-cruiser on src - zero violations expected
+# Forbidden fixtures (tests/architecture/fixtures) must fail with source->target
 ```
 
-Verification gates (all must be green before a phase is called complete):
+Rules:
+- Domain must not import outside Domain
+- Application must not import Infrastructure, App, Worker, React, Next, Prisma
+- App must not import Prisma directly (only via Infrastructure wrapper)
+- No circular dependencies
+
+Thin-route rule: route.ts must be <150 lines, use dispatchRoute, no PrismaClient, no business table names.
+
+## HTTP and error baseline
+
+- Versioned from first contract: `/api/v1/ping`
+- Every response carries `X-Correlation-Id` - valid caller UUID propagated, malformed replaced not echoed
+- Non-success uses RFC 9457 ProblemDetails: type, title, status, code (^[A-Z][A-Z0-9_]{1,119}$), correlationId, safe detail, errors, dependency
+- CORS: exact-origin parsing via URL.origin, explicit allow-list, disallowed origin denied with 403 Problem
+- Same-origin client: `src/app/lib/api/client.ts` uses relative URLs, no hard-coded host
+- OpenAPI: Zod schemas + `@asteasolutions/zod-to-openapi` generate `contracts/openapi/agentix-v1.json`, drift fails `openapi:check`
+
+## Persistence and background work
+
+- Migration `001_solution_foundation`: outbox_messages, outbox_attempts, foundation_demo_requests, foundation_demo_effects with exact limits (work type 1-120, idempotency 1-200, traceparent ≤55, tracestate ≤512, payload ≤64 KiB), checks, indexes (due, lease, tenant-leading, correlation, terminal), unique constraints
+- Atomic enqueue: `FoundationDemoRepository.createRequestWithOutboxAtomic` uses `$transaction` - both commit or both rollback
+- Idempotency: duplicate (type,scope,owner,key) returns one work item, same request ID
+- Claim: `PostgresWorkClaimer` uses `FOR UPDATE SKIP LOCKED`, `ORDER BY available_at,created_at,id`, short transaction, attempt row insertion, lease ownership 30s
+- Lease reaper: `PostgresLeaseReaper` recovers expired leases, resets to pending, records `lease_expired`
+- Retry: `RetryPolicy` base 1s cap 30s jitter, max 3 bounded 1-10, transient -> retry_scheduled with nextAvailableAt, unknown version -> failed permanent
+- Handler: `foundation.demo.requested` v1 idempotent - unique request/work effect via DB unique constraints, request completion, outbox success, redelivery safe (23505 handling)
+- Worker: `WorkerCoordinator` poll 1000 batch 10 lease 30s, W3C context propagation, cancellation via AbortSignal, graceful shutdown ≤30s or recoverable lease, never retry indefinitely
+- Scope: tenant requires orgId, global forbids orgId, fail closed, explicit `globalWork`/`tenantWork` factories, sensitive-key rejection
+
+## Diagnostics and zero leakage
+
+- Logs: Pino JSON with timestamp, severity, correlation_id, operation/work identity, status, safe error code [REDACTED], child diagnostic context, recursive redaction, body/payload omission
+- Traces: OTel bootstrap with optional OTLP exporters, graceful shutdown, bounded metric/span attributes, correlation_id/work_id in logs/spans not metric labels, validated W3C traceparent/tracestate
+- Metrics: baseline counters/durations - http_request_duration_seconds, http_requests_total, http_failures_total, work_success_total, work_failure_total, work_retry_total, outbox_claim_duration_seconds, readiness_state - allow-list labels only (operation,status,service,dependency,outcome,work_type,method,route)
+- Zero leakage: seeded markers (supersecret, secret123, postgres://, sk-*, BEGIN RSA PRIVATE KEY) appear zero times across responses, health, Pino sink, spans, metrics, Problem Details, outbox error fields, OpenAPI, snapshots - verified by `tests/integration/security/diagnostic-redaction.test.ts`
+
+## Design baseline
+
+- Tokens: exact mock names/values from `Public/Desgin/index.html` - --bg #080b11, --surface #0f141e, --border #222b3b, --text #f4f6fb, --primary #8274f8, --radius 14px, etc.
+- Components: .card, .card-header, .btn, .btn-primary, .status-chip, .banner, .field - all use var(--) not literal hex
+- States: loading, ready, dependency-error, retry - text-plus-color, aria-live polite, retry labelled keyboard operable
+- Accessibility: keyboard operable, focus-visible 2px solid --primary-bright, 4.5:1 body 3:1 icon/large, 200% zoom no horizontal loss, narrow viewport 320px, reduced-motion disables animations/transitions, no external font requests, Inter system fallback
+- No fake auth/tenant/project/provider/run/billing/simulator/approval controls
+
+## Verification gates
+
+Same locally and in CI (Node 22, PostgreSQL 16):
 
 ```bash
-npm run lint && npm test && npm run build
+npm run lint && npm test && npm run build && npm run license:check && npm run architecture:check && npm run openapi:check && npm run test:policy
 ```
 
-## How we build features (Spec Kit)
+- `lint`: zero-warning ESLint
+- `test`: Vitest 5 unit/integration/ui/architecture/contract - 98 tests, no .skip/.only/todo/placeholder
+- `build`: Next.js 16 production build, type-checks app and worker, routes: /, /health/live, /health/ready, /api/v1/ping, /api/v1/foundation/work, /api/v1/foundation/work/[requestId]
+- `license:check`: allow-only MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0 - 994 packages
+- `architecture:check`: dependency-cruiser zero violations, forbidden fixtures fail
+- `openapi:check`: committed JSON exists, has required paths/operationIds, no drift
+- `test:policy`: no .skip/.only/todo/placeholder
+- `prisma:validate`, `db:migrate`, `db:status`: migration applies twice safe
+- `openapi:generate`: generates from Zod schemas
 
-```bash
-/speckit-constitution      # amend governance (rare) — .specify/memory/constitution.md
-/speckit-specify <intent>  # creates branch NNN-name + specs/NNN-name/spec.md
-/speckit-clarify           # optional: resolve ambiguities, answers appended to spec.md
-/speckit-plan              # plan.md, research.md, data-model.md, contracts/, quickstart.md
-/speckit-tasks             # tasks.md, phases of ≤10 tasks with [P] parallelisable markers
-/speckit-analyze           # optional: spec/plan/tasks consistency report (run after tasks)
-/speckit-implement         # execute one phase at a time, build+test gate between phases
-/speckit-converge          # reconcile what is missing after implementation
-/speckit-taskstoissues     # optional: publish tasks as GitHub issues
-```
+## Deployment
 
-`/speckit-clarify`, `/speckit-analyze` and `/speckit-checklist` are **optional enhancement** commands
-(upstream Spec Kit classifies them that way): run them where the spec carries state machines, money,
-authorization or UI deviation; skip and note the reason otherwise.
+- Web: Next.js Node runtime on Vercel or equivalent Node host, same-origin browser calls
+- Worker: Separate long-running Node container/process, no extra HTTP server, `npm run worker` or `tsx src/worker/main.ts`
+- Database: PostgreSQL 16+, `DATABASE_URL` required, production `APP_ORIGIN` required exact origin, CORS_ORIGINS comma-separated exact origins
+- Env: `.env.example` documents all settings, `.env*` ignored except example, no real connection string or secret committed
+- Worker notices work within 2s, shutdown within 30s
 
-Full guidance, spec sequence, and quality gates: [docs/SPEC-DRIVEN-PLAYBOOK.md](docs/SPEC-DRIVEN-PLAYBOOK.md).
-Product behaviour awaiting its spec (approval commands, role matrix, webhook protocol values):
-[docs/business-rules/github-approval-surface.md](docs/business-rules/github-approval-surface.md).
+## Constitution compliance
 
-## Roadmap (planned specs)
+See `specs/001-solution-foundation/checklists/implementation.md` for Principles I-XI evidence, licenses, migration, no approval route, no sensitive marker, design delta, quickstart sign-off.
 
-| # | Spec | Why this order |
-| --- | --- | --- |
-| 001 | Solution skeleton, host wiring, design-token layer | Nothing else compiles without the layer boundaries |
-| 002 | Tenancy & identity: register → org → roles, `org_id` + global query filters | Isolation must precede any tenant data |
-| 003 | Secret vault: AES-256-GCM envelope + KMS KEK, provider keys, audit log | Everything downstream reads keys |
-| 004 | Projects ↔ repository mapping, `ISourceProvider` + Simulated repository | Provider contract before any GitHub code |
-| 005 | Agent profiles: per-phase provider/model/temperature/rules + skill library | Pipeline needs selectable agents |
-| 006 | Metering ledger + pricing table + org overrides + budget hard stops | Cost is enforced where calls happen |
-| 007 | Run engine: phase state machine, Mock agent, run timeline | Whole pipeline on mocks |
-| 008 | Hooks: before-hooks (read-only repo tools) + Judge after-hook + bounded loop | Quality loop on mocks |
-| 009 | Webhook ingress: per-connection URL, HMAC-SHA256, replay protection, idempotency | Real events start here |
-| 010 | GitHub provider: commits, draft PRs, commands `/approve` `/revise` `/reject` `/answer` `/status` `/cost` `/retry` | Approval surface |
-| 011 | Console: dashboard, runs, usage dashboards, simulator reusing the webhook path | Operator experience |
-| 012 | Azure DevOps typed stub + provider capability docs | Prove the contract generalises |
+## License
 
-## Security posture (summary)
-
-Envelope encryption with per-org DEKs under a KMS-held KEK; plaintext only transiently in memory;
-masked metadata on every read path; webhook signatures compared in constant time inside a 300 s
-replay window; cross-tenant access fails closed; approvals reachable only through the signed
-webhook ingress. Details: constitution Principles V–VII.
-
-## Governance
-
-The [constitution](.specify/memory/constitution.md) is the supreme engineering authority for this
-repo: 11 principles, global constraints, delivery workflow, and governance. Amendments go through
-`/speckit-constitution` with a semver bump. Exceptions require an owner, an expiry date, and an
-entry in [docs/governance/exceptions.md](docs/governance/exceptions.md).
+MIT etc. - see `npm run license:check` allow-list.
