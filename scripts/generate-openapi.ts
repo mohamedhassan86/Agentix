@@ -311,6 +311,49 @@ const SlugSuggestionSchema = registry.register("SlugSuggestion", z.object({
   slug: z.string().min(3).max(48),
 }));
 
+const InvitationSchema = registry.register("Invitation", z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  role: z.enum(["viewer", "member", "admin"]),
+  status: z.enum(["pending", "accepted", "expired", "revoked"]),
+  deliveryState: z.enum(["queued", "sent", "failed"]),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  ageSeconds: z.number().min(0),
+}));
+
+const InvitationPageSchema = registry.register("InvitationPage", z.object({
+  items: z.array(InvitationSchema),
+  nextCursor: z.string().nullable(),
+}));
+
+const CreateInvitationRequestSchema = registry.register("CreateInvitationRequest", z.object({
+  email: z.string().email().max(254),
+  role: z.enum(["viewer", "member", "admin"]),
+}));
+
+const InvitationPreviewSchema = registry.register("InvitationPreview", z.object({
+  invitationId: z.string().uuid(),
+  organizationName: z.string(),
+  invitedEmail: z.string().email(),
+  role: z.enum(["viewer", "member", "admin"]),
+  status: z.enum(["pending", "accepted", "expired", "revoked"]),
+  expiresAt: z.string().datetime(),
+  accountRequired: z.boolean(),
+}));
+
+const InvitationAcceptanceResultSchema = registry.register("InvitationAcceptanceResult", z.object({
+  membership: z.object({
+    id: z.string().uuid(),
+    userId: z.string().uuid(),
+    displayName: z.string(),
+    email: z.string().email(),
+    role: z.enum(["viewer", "member", "admin", "owner"]),
+    joinedAt: z.string().datetime(),
+  }),
+  activeOrganizationChanged: z.literal(false),
+}));
+
 registry.registerPath({
   method: "post",
   path: "/api/v1/auth/register",
@@ -479,6 +522,85 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/organization/invitations",
+  tags: ["Invitations"],
+  operationId: "listInvitations",
+  responses: {
+    200: { description: "Invitations", content: { "application/json": { schema: InvitationPageSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/organization/invitations",
+  tags: ["Invitations"],
+  operationId: "createInvitation",
+  request: { body: { content: { "application/json": { schema: CreateInvitationRequestSchema } } } },
+  responses: {
+    201: { description: "Created", content: { "application/json": { schema: InvitationSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+    409: { description: "Invitation conflict", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/organization/invitations/{invitationId}/resend",
+  tags: ["Invitations"],
+  operationId: "resendInvitation",
+  request: { params: z.object({ invitationId: z.string().uuid() }) },
+  responses: {
+    202: { description: "Queued", content: { "application/json": { schema: MessageQueuedResultSchema } } },
+    409: { description: "Invitation state", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/organization/invitations/{invitationId}/revoke",
+  tags: ["Invitations"],
+  operationId: "revokeInvitation",
+  request: { params: z.object({ invitationId: z.string().uuid() }) },
+  responses: {
+    200: { description: "Revoked", content: { "application/json": { schema: InvitationSchema } } },
+    409: { description: "Invitation state", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/invitations/{invitationId}",
+  tags: ["Invitations"],
+  operationId: "previewInvitation",
+  request: { params: z.object({ invitationId: z.string().uuid() }) },
+  responses: {
+    200: { description: "Preview", content: { "application/json": { schema: InvitationPreviewSchema } } },
+    400: { description: "Token problem", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/invitations/{invitationId}/accept",
+  tags: ["Invitations"],
+  operationId: "acceptInvitation",
+  request: {
+    params: z.object({ invitationId: z.string().uuid() }),
+    body: { content: { "application/json": { schema: z.object({ token: z.string().min(40) }) } } },
+  },
+  responses: {
+    200: { description: "Accepted", content: { "application/json": { schema: InvitationAcceptanceResultSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    403: { description: "Email mismatch", content: { "application/problem+json": { schema: ProblemSchema } } },
+    409: { description: "Invitation state", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
 const generator = new OpenApiGeneratorV3(registry.definitions);
 
 const doc = generator.generateDocument({
@@ -496,6 +618,7 @@ const doc = generator.generateDocument({
     { name: "Account", description: "Current account." },
     { name: "Session", description: "Session context and organization switch." },
     { name: "Organizations", description: "Create, list, and manage the active organization." },
+    { name: "Invitations", description: "Invite teammates and accept membership." },
   ],
 });
 

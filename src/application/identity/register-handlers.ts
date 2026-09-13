@@ -28,6 +28,18 @@ import { createDeleteOrganizationHandler } from "./handlers/delete-organization-
 import { createSuggestSlugHandler } from "./handlers/suggest-slug-handler";
 import { createListMyOrganizationsHandler } from "./handlers/list-my-organizations-handler";
 import { createGetActiveOrganizationHandler } from "./handlers/get-active-organization-handler";
+import { CREATE_INVITATION_TYPE } from "./commands/create-invitation";
+import { RESEND_INVITATION_TYPE } from "./commands/resend-invitation";
+import { REVOKE_INVITATION_TYPE } from "./commands/revoke-invitation";
+import { ACCEPT_INVITATION_TYPE } from "./commands/accept-invitation";
+import { LIST_INVITATIONS_TYPE } from "./queries/list-invitations";
+import { PREVIEW_INVITATION_TYPE } from "./queries/preview-invitation";
+import { createCreateInvitationHandler } from "./handlers/create-invitation-handler";
+import { createResendInvitationHandler } from "./handlers/resend-invitation-handler";
+import { createRevokeInvitationHandler } from "./handlers/revoke-invitation-handler";
+import { createAcceptInvitationHandler } from "./handlers/accept-invitation-handler";
+import { createListInvitationsHandler } from "./handlers/list-invitations-handler";
+import { createPreviewInvitationHandler } from "./handlers/preview-invitation-handler";
 
 export function registerIdentityAuthHandlers(dispatcher: Dispatcher, deps: IdentityHandlerDeps): void {
   dispatcher.register(REGISTER_ACCOUNT_TYPE, { handle: createRegisterAccountHandler(deps) } as any);
@@ -48,4 +60,14 @@ export function registerIdentityOrganizationHandlers(dispatcher: Dispatcher, dep
   dispatcher.register(SUGGEST_SLUG_TYPE, { handle: createSuggestSlugHandler(deps) } as any);
   dispatcher.register(LIST_MY_ORGANIZATIONS_TYPE, { handle: createListMyOrganizationsHandler(deps) } as any);
   dispatcher.register(GET_ACTIVE_ORGANIZATION_TYPE, { handle: createGetActiveOrganizationHandler(deps) } as any);
+  registerIdentityInvitationHandlers(dispatcher, deps);
+}
+
+export function registerIdentityInvitationHandlers(dispatcher: Dispatcher, deps: IdentityHandlerDeps): void {
+  dispatcher.register(CREATE_INVITATION_TYPE, { handle: createCreateInvitationHandler(deps) } as any);
+  dispatcher.register(RESEND_INVITATION_TYPE, { handle: createResendInvitationHandler(deps) } as any);
+  dispatcher.register(REVOKE_INVITATION_TYPE, { handle: createRevokeInvitationHandler(deps) } as any);
+  dispatcher.register(ACCEPT_INVITATION_TYPE, { handle: createAcceptInvitationHandler(deps) } as any);
+  dispatcher.register(LIST_INVITATIONS_TYPE, { handle: createListInvitationsHandler(deps) } as any);
+  dispatcher.register(PREVIEW_INVITATION_TYPE, { handle: createPreviewInvitationHandler(deps) } as any);
 }

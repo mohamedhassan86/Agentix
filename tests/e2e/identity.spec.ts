@@ -16,6 +16,11 @@ test.describe("identity golden path", () => {
     await expect(page.getByRole("heading", { name: /email verification/i })).toBeVisible();
   });
 
+  test("US3 invite dialog is keyboard operable", async ({ page }) => {
+    await page.goto("/organization/invitations");
+    await expect(page.getByRole("heading", { name: /invitations/i })).toBeVisible();
+  });
+
   test("US2 create org empty state is keyboard operable", async ({ page }) => {
     await page.goto("/organizations");
     await expect(page.getByRole("heading", { name: /no organizations|organizations|choose organization/i })).toBeVisible();

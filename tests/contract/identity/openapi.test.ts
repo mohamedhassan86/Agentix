@@ -17,6 +17,12 @@ const REQUIRED_OPS = [
   "getActiveOrganization",
   "updateActiveOrganization",
   "deleteActiveOrganization",
+  "listInvitations",
+  "createInvitation",
+  "resendInvitation",
+  "revokeInvitation",
+  "previewInvitation",
+  "acceptInvitation",
 ];
 
 describe("identity OpenAPI contract", () => {
