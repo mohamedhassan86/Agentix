@@ -166,3 +166,13 @@ Member-scoped routes operate on `/api/v1/organization/...` and resolve the activ
 - Reuse Owner role — rejected by FR-035.
 - Reuse normal tenant context with synthetic membership — rejected because platform administrators must have zero memberships.
 - Self-serve platform admin endpoint — expressly forbidden.
+
+## R-013 — Prerequisite status update (2026-09-13, plan re-run)
+
+**Decision**: The R-001 prerequisite is now **satisfied**: `001-solution-foundation` is delivered. All 46 tasks in `specs/001-solution-foundation/tasks.md` are checked complete; the implementation checklist records the standard gates green (lint, 112 tests, production build, license scan of 994 packages, zero dependency-cruiser violations, validated additive migration `001_solution_foundation`). The concrete PostgreSQL adapter choice 001 made (`@prisma/adapter-pg` + native `pg`, Prisma 7.10.x) is adopted in this plan's Technical Context.
+
+**Rationale**: The 2026-09-12 plan recorded 001 as "not yet planned or delivered" and set a stop condition before task generation/implementation. A 2026-09-13 re-run of `/speckit-plan` verified the delivered state, so the gate line in `plan.md` moves from ⚠️ PREREQUISITE to ✅ PASS and the stop condition is lifted.
+
+**Alternatives considered**:
+- Keep the stop condition — rejected; it is factually stale and would block `/speckit-tasks` against a delivered foundation.
+- Absorb any remaining foundation work into 002 — rejected as before (R-001); 002 still must not re-scaffold foundation concerns.

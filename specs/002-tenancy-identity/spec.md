@@ -241,8 +241,6 @@ Legend: **Y** = allowed, **N** = denied, **—** = not applicable. "Reserved" ro
 | Logically delete organization | Y | N | N | N | N | Confirmation required |
 | Delete own account | Y* | Y | Y | Y | Y | \*Blocked if sole Owner of any org |
 | View dashboards, runs, spec artifacts (reserved) | Y | Y | Y | Y | N | Later feature |
-| View cost / spend (reserved) | Y | Y | Y | Y | N | Later feature; Viewer  |
-| View dashboards, runs, spec artifacts (reserved) | Y | Y | Y | Y | N | Later feature |
 | View cost / spend (reserved) | Y | Y | Y | Y | N | Later feature; Viewer is read-only including cost |
 | Start runs / simulations (reserved) | Y | Y | Y | N | N | Later feature |
 | Comment / approve within workflow (reserved) | Y | Y | Y | N | N | Later feature; approval still only via verified source-host ingress |
@@ -278,7 +276,7 @@ Legend: **Y** = allowed, **N** = denied, **—** = not applicable. "Reserved" ro
 
 ## Assumptions
 
-- Sequential spec number **002** matches the published roadmap (`tenancy-identity`). Spec **001** (solution foundation / host wiring) is the intended engineering predecessor and is not yet delivered; this spec does not depend on its user-facing behavior.
+- Sequential spec number **002** matches the published roadmap (`tenancy-identity`). Spec **001** (solution foundation / host wiring) is the intended engineering predecessor; this spec does not depend on its user-facing behavior. 001 was delivered before the 2026-09-13 plan re-run, so it no longer blocks this feature.
 - The brief said both "a user can belong to zero, one, or many organizations" and "a user can only have one organization". The many-organization reading is adopted: it is required by the switcher journey, the two-organization acceptance scenario, and the design org switcher. Projects remaining one-org-scoped is unchanged and is out of scope here.
 - Email verification is modeled (unverified default, message issued, accept, reuse) but **not** gated: unverified users may create and join organizations in this phase. A later phase turns the gate on.
 - Verification and invitation messages are issued as product events; a real mailbox provider may be replaced by a captured-message test pathway in this phase, as long as the token, expiry, and accept behavior are real.
@@ -325,12 +323,5 @@ Re-read performed: `.specify/memory/constitution.md` v2.0.0 (2026-09-12) and all
 | IX Hooks / metering | No | |
 | X Test-gated DoD | Yes | Permission-matrix tests, concurrent Owner-invariant tests, and per-action cross-tenant tests are success criteria. |
 | XI Design-guideline fidelity | Yes | Auth, org switcher, Members & roles, invite dialog, create-organization dialog, settings danger-zone confirmation. Deviations (no SSO/SCIM, no invite-as-Owner, Viewer sees cost later, Agentix naming) are listed in Assumptions for a Design Delta in `plan.md`. |
-
-No constitution exception is requested. Isolation controls are not deferred.
- Delta in `plan.md`. |
-
-No constitution exception is requested. Isolation controls are not deferred.
-sted. Isolation controls are not deferred.
- Delta in `plan.md`. |
 
 No constitution exception is requested. Isolation controls are not deferred.

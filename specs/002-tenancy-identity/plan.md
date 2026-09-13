@@ -1,6 +1,6 @@
 # Implementation Plan: Tenancy & Identity
 
-**Branch**: `002-tenancy-identity` | **Date**: 2026-09-12 | **Spec**: [spec.md](./spec.md)
+**Branch**: `002-tenancy-identity` | **Date**: 2026-09-12 | **Re-verified**: 2026-09-13 (plan workflow re-run; prerequisite state and spec defects confirmed) | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `/specs/002-tenancy-identity/spec.md`
 
@@ -10,7 +10,7 @@
 
 Deliver the first identity and tenant boundary: email/password accounts, revocable server-side sessions, organizations, one role-bearing membership per user and organization, invitations and verification links, role enforcement, organization switching, logical deletion, identity events, and a read-only platform-inspection surface. Implement it as one Next.js/TypeScript vertical slice through the fixed Domain → Application → Infrastructure → App layers. PostgreSQL is the source of truth; Prisma repositories use a registry-driven tenant client that refuses organization-scoped work without a resolved member context or the explicitly read-only platform-inspection context. Organization ownership transfer is serialized and database-checked, and authorization always reloads current membership rather than trusting the session role snapshot.
 
-Implementation is gated on spec `001-solution-foundation` being delivered. Its specification now exists at `specs/001-solution-foundation/spec.md`, but it is not yet planned or delivered; its missing implementation does not change this design and MUST NOT be absorbed into spec 002. Task generation/implementation must stop until the foundation supplies the package scripts, composition roots, error middleware, telemetry baseline, design tokens, Prisma baseline, outbox, and test harness named below.
+Spec `001-solution-foundation` is **delivered** (verified 2026-09-13): all 46 tasks in `specs/001-solution-foundation/tasks.md` are complete and its implementation checklist (`specs/001-solution-foundation/checklists/implementation.md`) records the standard gates green — lint, 112 tests, build, license scan (994 packages), zero dependency-cruiser violations, and a validated additive migration `001_solution_foundation`. The foundation supplies the package scripts, composition roots, Problem Details/error middleware, telemetry baseline, design tokens, Prisma baseline (Prisma 7.10.x with `@prisma/adapter-pg` + native `pg`), transactional outbox and worker, and test harness this design consumes. Foundation concerns MUST NOT be re-scaffolded or absorbed into spec 002; 002 task generation and implementation can proceed against the delivered foundation.
 
 ## Technical Context
 
@@ -18,7 +18,7 @@ Implementation is gated on spec `001-solution-foundation` being delivered. Its s
 
 **Primary Dependencies**: Next.js 16.x, React 19.x, Auth.js 5.x Credentials provider and database adapter, Prisma Client 7.x, PostgreSQL driver/adapter selected by spec 001, Zod 4.x, `@asteasolutions/zod-to-openapi` 8.x, `argon2` 0.45.x, Lucide React; no paid service is required (all are permissive MIT/Apache-2.0/ISC dependencies; exact lockfile versions are selected at implementation time after the license scan)
 
-**Storage**: PostgreSQL 16+ through Prisma; shared schema; UUID primary keys; `timestamptz`; transactional outbox supplied by spec 001; no Redis dependency
+**Storage**: PostgreSQL 16+ through Prisma on the delivered spec 001 baseline (`@prisma/adapter-pg` + native `pg`); shared schema; UUID primary keys; `timestamptz`; transactional outbox supplied by spec 001; no Redis dependency
 
 **Testing**: Vitest for domain/application/UI tests, Testing Library for client interactions, Testcontainers with PostgreSQL 16 for repository/API/concurrency/isolation tests, Playwright for the identity golden path; OpenAPI 3.1 conformance and license scan in the standard gates
 
@@ -30,7 +30,7 @@ Implementation is gated on spec `001-solution-foundation` being delivered. Its s
 
 **Constraints**: Fail closed on absent/invalid tenant context; foreign tenant produces zero payload/log leakage; database-backed revocable `HttpOnly`, `Secure`, `SameSite=Lax` sessions; sign-in begins without an active organization; roles are refreshed per request; exactly one Owner under concurrency; token/password material never logged or returned outside its one issued message; additive/reversible migration; no client-side direct database/authz logic; no real mail provider required
 
-**Scale/Scope**: 5 user stories, 11 identity screens/states, 4 organization roles plus one non-membership platform privilege, approximately 24 REST operations, 7 persisted identity concepts, 2 token lifecycles, and automated coverage of every in-scope permission-matrix cell and organization-scoped operation
+**Scale/Scope**: 5 user stories, 11 identity screens/states, 4 organization roles plus one non-membership platform privilege, 29 REST operations (counted from [contracts/openapi.yaml](./contracts/openapi.yaml)), 7 persisted identity concepts, 2 token lifecycles, and automated coverage of every in-scope permission-matrix cell and organization-scoped operation
 
 ## Constitution Check
 
@@ -40,7 +40,7 @@ Implementation is gated on spec `001-solution-foundation` being delivered. Its s
 
 | Principle / constraint | Status | Plan evidence |
 | --- | --- | --- |
-| I. Spec-driven delivery | ✅ PASS | Work remains in `specs/002-tenancy-identity`; clarify was run and recorded in the spec. Tasks and code are not generated by this command. Spec 001 remains an explicit implementation prerequisite rather than hidden scope. |
+| I. Spec-driven delivery | ✅ PASS | Work remains in `specs/002-tenancy-identity`; clarify was run and recorded in the spec. Tasks and code are not generated by this command. Spec 001 is delivered (46/46 tasks, gates green per its implementation checklist) and 002 builds on it without re-scaffolding foundation concerns or absorbing hidden scope. |
 | II. Clean architecture | ✅ PASS | Domain has no runtime dependencies; Application owns use cases/ports/policies; Infrastructure owns Prisma/Auth.js/Argon2/outbox adapters; App owns parsing, dispatch, pages, and composition. |
 | III. Rich domain model | ✅ PASS | Organization/Membership and Invitation transitions and invariants are specified in [data-model.md](./data-model.md); ownership transfer is behavior, not generic update. |
 | IV. Thin route handlers | ✅ PASS | Contract operations map to one parse plus one command/query dispatch. Auth, tenant resolution, current-role lookup, correlation, and Problem Details mapping are middleware/pipeline behavior. |
@@ -53,9 +53,9 @@ Implementation is gated on spec `001-solution-foundation` being delivered. Its s
 | XI. Design fidelity | ✅ PASS | UI reuses the canonical tokens/components and records all required Design Deltas below; loading, empty, error, denied, keyboard, focus, dialog, and reduced-motion behavior are included. |
 | Global runtime/data/API | ✅ PASS | Node 22, strict TS, Next 16/React 19, PostgreSQL 16, Prisma, `/api/v1`, OpenAPI 3.1, RFC 9457, cursor pagination, UUIDs, UTC timestamps. |
 | Dependency licensing | ✅ PASS | Proposed runtime/dev dependencies are MIT, Apache-2.0, or ISC; implementation must pin them and run the repository license gate before acceptance. |
-| Delivery ordering | ⚠️ PREREQUISITE | Spec 001 is specified but not yet planned or delivered. Planning can complete, but `/speckit-tasks` must mark 001 as a prerequisite and implementation must not scaffold foundation concerns here. |
+| Delivery ordering | ✅ PASS | Verified 2026-09-13: spec 001 is delivered (all 46 tasks complete; gates green per `specs/001-solution-foundation/checklists/implementation.md`). The prerequisite that gated this plan is satisfied; `/speckit-tasks` proceeds, and implementation must not scaffold foundation concerns here. |
 
-No constitution exception is requested. The prerequisite warning is not a principle violation; it is a stop condition before implementation.
+No constitution exception is requested. The former prerequisite warning is cleared: spec 001 is delivered, so no stop condition remains before task generation or implementation.
 
 ### Post-design re-check
 
