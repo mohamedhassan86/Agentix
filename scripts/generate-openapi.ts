@@ -437,6 +437,19 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "put",
+  path: "/api/v1/session/active-organization",
+  tags: ["Session"],
+  operationId: "switchActiveOrganization",
+  request: { body: { content: { "application/json": { schema: z.object({ organizationId: z.string().uuid() }) } } } },
+  responses: {
+    200: { description: "Switched", content: { "application/json": { schema: SessionContextSchema } } },
+    403: { description: "Former member", content: { "application/problem+json": { schema: ProblemSchema } } },
+    404: { description: "Not found", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
   method: "get",
   path: "/api/v1/session",
   tags: ["Session"],
@@ -647,6 +660,42 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "get",
+  path: "/api/v1/platform/organizations/{organizationId}",
+  tags: ["Platform"],
+  operationId: "inspectOrganization",
+  request: { params: z.object({ organizationId: z.string().uuid() }) },
+  responses: {
+    200: { description: "Inspect", content: { "application/json": { schema: OrganizationProfileSchema } } },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/platform/organizations/{organizationId}/members",
+  tags: ["Platform"],
+  operationId: "inspectOrganizationMembers",
+  request: { params: z.object({ organizationId: z.string().uuid() }) },
+  responses: {
+    200: { description: "Inspect members" },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/platform/organizations/{organizationId}/invitations",
+  tags: ["Platform"],
+  operationId: "inspectOrganizationInvitations",
+  request: { params: z.object({ organizationId: z.string().uuid() }) },
+  responses: {
+    200: { description: "Inspect invitations" },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
   method: "post",
   path: "/api/v1/invitations/{invitationId}/accept",
   tags: ["Invitations"],
@@ -682,6 +731,7 @@ const doc = generator.generateDocument({
     { name: "Organizations", description: "Create, list, and manage the active organization." },
     { name: "Invitations", description: "Invite teammates and accept membership." },
     { name: "Members", description: "Roles, leave, remove, and ownership transfer." },
+    { name: "Platform", description: "Read-only platform administrator inspection." },
   ],
 });
 

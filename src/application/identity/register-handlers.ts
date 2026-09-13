@@ -50,6 +50,14 @@ import { createChangeMemberRoleHandler } from "./handlers/change-member-role-han
 import { createRemoveMemberHandler } from "./handlers/remove-member-handler";
 import { createLeaveOrganizationHandler } from "./handlers/leave-organization-handler";
 import { createTransferOwnershipHandler } from "./handlers/transfer-ownership-handler";
+import { SWITCH_ACTIVE_ORGANIZATION_TYPE } from "./commands/switch-active-organization";
+import { INSPECT_ORGANIZATION_TYPE } from "./queries/inspect-organization";
+import { INSPECT_MEMBERS_TYPE } from "./queries/inspect-members";
+import { INSPECT_INVITATIONS_TYPE } from "./queries/inspect-invitations";
+import { createSwitchActiveOrganizationHandler } from "./handlers/switch-active-organization-handler";
+import { createInspectOrganizationHandler } from "./handlers/inspect-organization-handler";
+import { createInspectMembersHandler } from "./handlers/inspect-members-handler";
+import { createInspectInvitationsHandler } from "./handlers/inspect-invitations-handler";
 
 export function registerIdentityAuthHandlers(dispatcher: Dispatcher, deps: IdentityHandlerDeps): void {
   dispatcher.register(REGISTER_ACCOUNT_TYPE, { handle: createRegisterAccountHandler(deps) } as any);
@@ -89,4 +97,12 @@ export function registerIdentityMembershipHandlers(dispatcher: Dispatcher, deps:
   dispatcher.register(REMOVE_MEMBER_TYPE, { handle: createRemoveMemberHandler(deps) } as any);
   dispatcher.register(LEAVE_ORGANIZATION_TYPE, { handle: createLeaveOrganizationHandler(deps) } as any);
   dispatcher.register(TRANSFER_OWNERSHIP_TYPE, { handle: createTransferOwnershipHandler(deps) } as any);
+  registerIdentityPlatformHandlers(dispatcher, deps);
+}
+
+export function registerIdentityPlatformHandlers(dispatcher: Dispatcher, deps: IdentityHandlerDeps): void {
+  dispatcher.register(SWITCH_ACTIVE_ORGANIZATION_TYPE, { handle: createSwitchActiveOrganizationHandler(deps) } as any);
+  dispatcher.register(INSPECT_ORGANIZATION_TYPE, { handle: createInspectOrganizationHandler(deps) } as any);
+  dispatcher.register(INSPECT_MEMBERS_TYPE, { handle: createInspectMembersHandler(deps) } as any);
+  dispatcher.register(INSPECT_INVITATIONS_TYPE, { handle: createInspectInvitationsHandler(deps) } as any);
 }
