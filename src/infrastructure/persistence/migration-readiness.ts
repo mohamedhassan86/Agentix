@@ -1,6 +1,6 @@
 import type { IReadinessProbe, ReadinessProbeResult, ReadinessReason } from "@/application/shared/ports/readiness-probe";
 import { getPgPool } from "./pg";
-import { resolveRuntimeDatabaseUrl } from "@/infrastructure/config/database-url";
+import { describeConnectionTarget, resolveRuntimeDatabaseUrl } from "@/infrastructure/config/database-url";
 import { classifyDatabaseFailure } from "./db-diagnostics";
 import { getLogger } from "@/infrastructure/observability/logger";
 
@@ -13,6 +13,12 @@ const MIGRATION_TABLE = "_prisma_migrations";
 interface QueryableClient {
   query(sql: string, params?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
   release(): void;
+}
+
+interface ConnectionTargetForLog {
+  /** Name of the environment variable the connection string came from. */
+  source: string;
+  target: ReturnType<typeof describeConnectionTarget>;
 }
 
 /**
@@ -28,9 +34,32 @@ function unclassifiedDriverCode(error: unknown): string {
   return "unclassified";
 }
 
-function logProbeFailure(reason: string, dependency: string, driverCode?: string): void {
+/** True when the foundation tables exist (schema present, regardless of migration history). */
+async function hasFoundationTables(client: QueryableClient, timeoutMs: number): Promise<boolean> {
+  const tables = await withTimeout(
+    client.query("SELECT to_regclass($1) AS present", ["public.outbox_messages"]),
+    timeoutMs
+  );
+  return Boolean(tables.rows[0]?.present);
+}
+
+function logProbeFailure(reason: string, dependency: string, driverCode?: string, targetSource?: ConnectionTargetForLog): void {
   try {
-    getLogger().warn({ operation: "readinessProbe", reason, dependency, driverCode: driverCode ?? "unclassified" });
+    getLogger().warn({
+      operation: "readinessProbe",
+      reason,
+      dependency,
+      driverCode: driverCode ?? "unclassified",
+      // Credential-free: host, port, database and the *name* of the variable they came from.
+      // This is what lets an operator compare the database the app reached with the one the
+      // build migrated ("migrated X, probing Y").
+      databaseHost: targetSource?.target?.host,
+      databasePort: targetSource?.target?.port,
+      databaseName: targetSource?.target?.database,
+      // NOTE: not named *databaseUrl* - the logger redacts keys containing "databaseurl",
+      // which would silently drop the most useful field in this line.
+      urlVariableName: targetSource?.source,
+    });
   } catch {
     void 0;
   }
@@ -87,6 +116,8 @@ export class MigrationReadinessProbe implements IReadinessProbe {
       };
     }
 
+    const logTarget: ConnectionTargetForLog = { source: resolved.source, target: describeConnectionTarget(resolved.url) };
+
     let client: QueryableClient | null = null;
     try {
       const pool = (this.deps.getPool ?? getPgPool)();
@@ -101,7 +132,14 @@ export class MigrationReadinessProbe implements IReadinessProbe {
         this.timeoutMs
       );
       if (!migrationTable.rows[0]?.present) {
-        return { status: "not_ready", dependency: "schema", reason: "migration_table_missing", message: "Migration table missing" };
+        // No history table. Two very different situations share this symptom, and the operator
+        // must be told which one: an empty database (`migrate deploy` applies the schema) versus
+        // a schema created outside Prisma's history, e.g. `db push` or a hand-run migration.sql
+        // (`migrate deploy` would fail with P3005 - the fix is `migrate resolve --applied`).
+        const existingSchema = await hasFoundationTables(client, this.timeoutMs);
+        return existingSchema
+          ? { status: "not_ready", dependency: "schema", reason: "migration_history_drift", message: "Schema present without migration history" }
+          : { status: "not_ready", dependency: "schema", reason: "migration_table_missing", message: "Migration table missing" };
       }
 
       const applied = await withTimeout(
@@ -116,14 +154,10 @@ export class MigrationReadinessProbe implements IReadinessProbe {
       if (!expected) {
         // The migration is not recorded - but if the foundation tables exist the
         // database was migrated outside of Prisma's history (drifted, not empty).
-        const tables = await withTimeout(
-          client.query("SELECT to_regclass($1) AS present", ["public.outbox_messages"]),
-          this.timeoutMs
-        );
         return {
           status: "not_ready",
           dependency: "schema",
-          reason: tables.rows[0]?.present ? "migration_history_drift" : "foundation_migration_not_applied",
+          reason: (await hasFoundationTables(client, this.timeoutMs)) ? "migration_history_drift" : "foundation_migration_not_applied",
           message: "Foundation migration not applied",
         };
       }
@@ -133,16 +167,16 @@ export class MigrationReadinessProbe implements IReadinessProbe {
       const timeout = (error as { isProbeTimeout?: boolean }).isProbeTimeout === true;
       const classified = classifyDatabaseFailure(error);
       if (classified) {
-        logProbeFailure(classified.reason, classified.dependency, classified.driverCode);
+        logProbeFailure(classified.reason, classified.dependency, classified.driverCode, logTarget);
         return { status: "not_ready", dependency: classified.dependency, reason: classified.reason, message: "Database dependency unavailable" };
       }
       if (timeout) {
-        logProbeFailure("connection_timeout", "database", "probe_timeout");
+        logProbeFailure("connection_timeout", "database", "probe_timeout", logTarget);
         return { status: "not_ready", dependency: "database", reason: "connection_timeout", message: "Database probe timed out" };
       }
       // Unclassified driver/socket failure: still a database dependency failure,
       // reported with a closed-set reason so no driver text or credential leaks.
-      logProbeFailure("connection_failed", "database", unclassifiedDriverCode(error));
+      logProbeFailure("connection_failed", "database", unclassifiedDriverCode(error), logTarget);
       return { status: "not_ready", dependency: "database", reason: "connection_failed", message: "Database unavailable" };
     } finally {
       try {
@@ -165,9 +199,14 @@ export class DatabaseReadinessProbe implements IReadinessProbe {
 
   async check(): Promise<ReadinessProbeResult> {
     const env = this.deps.env ?? process.env;
-    if (!resolveRuntimeDatabaseUrl(env)) {
+    const resolved = resolveRuntimeDatabaseUrl(env);
+    if (!resolved) {
       return { status: "not_ready", dependency: "database", reason: "database_url_missing", message: "No database connection string is configured" };
     }
+
+    const logTarget: ConnectionTargetForLog = resolved
+      ? { source: resolved.source, target: describeConnectionTarget(resolved.url) }
+      : { source: "none", target: null };
 
     let client: QueryableClient | null = null;
     try {
@@ -178,14 +217,14 @@ export class DatabaseReadinessProbe implements IReadinessProbe {
     } catch (error) {
       const classified = classifyDatabaseFailure(error);
       if (classified) {
-        logProbeFailure(classified.reason, "database", classified.driverCode);
+        logProbeFailure(classified.reason, "database", classified.driverCode, logTarget);
         return { status: "not_ready", dependency: "database", reason: classified.reason, message: "Database unavailable" };
       }
       if ((error as { isProbeTimeout?: boolean }).isProbeTimeout === true) {
-        logProbeFailure("connection_timeout", "database", "probe_timeout");
+        logProbeFailure("connection_timeout", "database", "probe_timeout", logTarget);
         return { status: "not_ready", dependency: "database", reason: "connection_timeout", message: "Database probe timed out" };
       }
-      logProbeFailure("connection_failed", "database", unclassifiedDriverCode(error));
+      logProbeFailure("connection_failed", "database", unclassifiedDriverCode(error), logTarget);
       return { status: "not_ready", dependency: "database", reason: "connection_failed", message: "Database unavailable" };
     } finally {
       try {

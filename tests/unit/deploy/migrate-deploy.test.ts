@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
+import { readFileSync, rmSync } from "node:fs";
 
 /**
  * The migration runner is the build step that keeps the deployed schema in sync.
@@ -120,4 +121,68 @@ describe("production migration runner", () => {
     expect(status).toBe(0);
     expect(output).toMatch(/DB_MIGRATE_OPTIONAL/);
   });
+});
+
+describe("migration helpers (mirrored from the app)", () => {
+  it("mirrors the app's TLS rule for remote and local targets", async () => {
+    const { sslForUrl } = (await import("../../../scripts/migrate-deploy.mjs")) as {
+      sslForUrl: (url: string, env?: NodeJS.ProcessEnv) => false | { rejectUnauthorized: boolean };
+    };
+    const { resolveDatabaseSsl } = await import("@/infrastructure/config/database-url");
+
+    const urls = [
+      "postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:5432/postgres",
+      "postgresql://u:p@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true",
+      "postgresql://u:p@localhost:5432/db",
+      "postgresql://u:p@127.0.0.1:5432/db",
+      "postgresql://u:p@db.abcdefgh.supabase.co:5432/postgres?sslmode=disable",
+    ];
+    for (const url of urls) {
+      const scriptSsl = sslForUrl(url, {} as NodeJS.ProcessEnv);
+      const appSsl = resolveDatabaseSsl(url, {} as NodeJS.ProcessEnv).ssl;
+      expect(scriptSsl, url).toEqual(appSsl);
+    }
+    expect(sslForUrl(urls[0], { PG_SSL_MODE: "disable" } as unknown as NodeJS.ProcessEnv)).toBe(false);
+  });
+
+  it("records a build marker so the deploy guard can see what happened", () => {
+    const markerPath = ".agentix/migration-status.json";
+    rmSync(markerPath, { force: true });
+    const { status, output } = runScript({ SKIP_DB_MIGRATE: "true" });
+    expect(status).toBe(0);
+    expect(output).toMatch(/SKIP_DB_MIGRATE/);
+
+    const marker = JSON.parse(readFileSync(markerPath, "utf-8")) as { status: string; reason: string; at: string };
+    expect(marker.status).toBe("skipped");
+    expect(marker.reason).toBe("SKIP_DB_MIGRATE");
+    expect(new Date(marker.at).toString()).not.toBe("Invalid Date");
+    rmSync(".agentix", { recursive: true, force: true });
+  });
+
+  it("marks a pooled-only preview build as skipped rather than failed", () => {
+    const markerPath = ".agentix/migration-status.json";
+    rmSync(markerPath, { force: true });
+    const { status } = runScript({
+      VERCEL: "1",
+      VERCEL_ENV: "preview",
+      POSTGRES_PRISMA_URL: "postgresql://postgres.abc:pw@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
+    });
+    expect(status).toBe(0);
+    const marker = JSON.parse(readFileSync(markerPath, "utf-8")) as { status: string; reason: string };
+    expect(marker.status).toBe("skipped");
+    expect(marker.reason).toBe("preview_build");
+    rmSync(".agentix", { recursive: true, force: true });
+  });
+});
+
+describe("post-migration verification", () => {
+  it("reports a truthful failure when the migrated database cannot be inspected", async () => {
+    const { verifyFoundationSchema } = (await import("../../../scripts/migrate-deploy.mjs")) as {
+      verifyFoundationSchema: (url: string) => Promise<{ ok: boolean; detail: string }>;
+    };
+    // Unroutable target: verification must fail closed (never claim success it cannot prove).
+    const result = await verifyFoundationSchema("postgresql://postgres:pw@127.0.0.1:1/postgres");
+    expect(result.ok).toBe(false);
+    expect(result.detail).toMatch(/verification query failed/);
+  }, 30_000);
 });

@@ -44,11 +44,12 @@ const REASON_HINTS: Record<string, string> = {
   database_missing: "The database named in the connection string does not exist on this server.",
   too_many_connections: "The provider's connection pool is exhausted. Use the pooler URL for runtime traffic.",
   server_unavailable: "The database is restarting or under maintenance. Retry in a moment.",
-  migration_table_missing: "No migration history found. Run `npm run db:migrate` with the direct (port 5432) connection.",
+  migration_table_missing:
+    "This database has no migration history. Apply migrations with the direct (port 5432) connection - `npm run db:migrate:deploy` - then retry. Preview deployments skip migrations by design; deploy to Production or set DB_MIGRATE_ON_PREVIEW=true. `npm run db:diagnose` shows which database this host reached.",
   no_migrations_applied: "The database is reachable but has no migrations. Run `npm run db:migrate`.",
   foundation_migration_not_applied: "Migration 001_solution_foundation is missing. Run `npm run db:migrate`.",
   migration_history_drift:
-    "Tables exist but the migration is not recorded. Run `npx prisma migrate resolve --applied 20250912000000_001_solution_foundation`.",
+    "The tables exist but Prisma has no record of the migration (created by `db push` or a hand-run migration.sql). Record it with `npx prisma migrate resolve --applied 20250912000000_001_solution_foundation`, then retry.",
 };
 
 function titleForProblem(problem: ProblemDetails | null, fallback: string): string {

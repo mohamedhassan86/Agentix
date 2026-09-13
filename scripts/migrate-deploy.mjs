@@ -27,6 +27,14 @@
  * (asserted by tests/unit/infrastructure/database-url.test.ts).
  */
 import { spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
+/** Build-time record of what this deploy did, read by next.config.ts to warn about stale deploys. */
+const MARKER_DIR = ".agentix";
+const MARKER_PATH = `${MARKER_DIR}/migration-status.json`;
 
 const MIGRATION_DATABASE_URL_KEYS = [
   "DIRECT_URL",
@@ -58,6 +66,15 @@ function log(message) {
   console.log(`[migrate] ${message}`);
 }
 
+function writeMarker(payload) {
+  try {
+    mkdirSync(MARKER_DIR, { recursive: true });
+    writeFileSync(MARKER_PATH, JSON.stringify({ at: new Date().toISOString(), ...payload }, null, 2));
+  } catch {
+    warn(`could not write ${MARKER_PATH}; the build guard will report the deploy as un-migrated.`);
+  }
+}
+
 function warn(message) {
   console.warn(`[migrate] WARNING: ${message}`);
 }
@@ -66,10 +83,12 @@ function fail(message, remediation) {
   if (softFail) {
     warn(`${message}${remediation ? ` FIX: ${remediation}` : ""}`);
     warn("DB_MIGRATE_ON_PREVIEW=true - this preview build continues without migrations.");
+    writeMarker({ status: "failed", reason: message });
     process.exit(0);
   }
   console.error(`[migrate] ERROR: ${message}`);
   if (remediation) console.error(`[migrate] FIX: ${remediation}`);
+  writeMarker({ status: "failed", reason: message });
   if (optional) {
     warn("DB_MIGRATE_OPTIONAL=true - continuing without applying migrations.");
     process.exit(0);
@@ -183,6 +202,7 @@ function runMigrateDeploy(url, timeoutMs) {
 async function main() {
   if (skip) {
     log("SKIP_DB_MIGRATE is set - skipping database migrations.");
+    writeMarker({ status: "skipped", reason: "SKIP_DB_MIGRATE" });
     return;
   }
 
@@ -194,6 +214,7 @@ async function main() {
         (target ? ` (would target ${target.host}:${target.port}/${target.database} via ${resolved.source})` : "")
     );
     log("Set DB_MIGRATE_ON_PREVIEW=true to apply migrations from preview builds.");
+    writeMarker({ status: "skipped", reason: "preview_build", target: target ? `${target.host}:${target.port}/${target.database}` : undefined });
     return;
   }
 
@@ -207,6 +228,7 @@ async function main() {
       );
     }
     warn(`${message} Skipping migrations for this build (no database configured for this environment).`);
+    writeMarker({ status: "not_configured", reason: "no_connection_string" });
     return;
   }
 
@@ -226,6 +248,7 @@ async function main() {
       warn(
         `${resolved.source} points at port 6543 (transaction pooler), which cannot run migrations - skipping. Set DIRECT_URL (or POSTGRES_URL_NON_POOLING) to the session/direct connection on port 5432.`
       );
+      writeMarker({ status: "skipped", reason: "transaction_pooler", source: resolved.source, target: `${target.host}:${target.port}/${target.database}` });
       return;
     }
     fail(
@@ -251,9 +274,72 @@ async function main() {
     );
   }
 
+  // `prisma migrate deploy` reporting success only means it applied *its* history to the
+  // database it was pointed at. Verify that database really holds the foundation schema, so a
+  // mis-pointed DIRECT_URL is caught here - not by the readiness probe in production.
+  const verification = await verifyFoundationSchema(resolved.url);
+  if (!verification.ok) {
+    printFailureDiagnosis(verification.detail);
+    fail(
+      `migrations reported success but the schema is not present on ${target.host}:${target.port}/${target.database} (${verification.detail}).`,
+      "Confirm DIRECT_URL and the runtime DATABASE_URL point at the same database, then re-run. `npm run db:diagnose` compares both."
+    );
+    return;
+  }
+
+  writeMarker({
+    status: "applied",
+    source: resolved.source,
+    target: `${target.host}:${target.port}/${target.database}`,
+    verified: verification.detail,
+  });
+  log(`verified on ${target.host}:${target.port}/${target.database}: ${verification.detail}`);
   log("database schema is up to date.");
 }
 
-main().catch((error) => {
-  fail(`unexpected failure: ${error?.message ?? error}`, "Re-run the build; if it persists, run `npm run db:status` manually.");
-});
+/** Mirrors src/infrastructure/config/database-url.ts resolveDatabaseSsl(). */
+export function sslForUrl(url, env = process.env) {
+  const parsed = new URL(url);
+  const local = ["localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"].includes(parsed.hostname.toLowerCase());
+  const envMode = (env.PG_SSL_MODE ?? "").trim().toLowerCase();
+  const mode = ["disable", "require", "verify-ca", "verify-full"].includes(envMode)
+    ? envMode
+    : (parsed.searchParams.get("sslmode") ?? "").toLowerCase() === "disable"
+      ? "disable"
+      : local
+        ? "disable"
+        : "require";
+  if (mode === "disable") return false;
+  return { rejectUnauthorized: mode.startsWith("verify") };
+}
+
+/** Opens a plain pg connection (no pool) with the same TLS rules the app uses. */
+export async function verifyFoundationSchema(url) {
+  const { Client } = require("pg");
+  const client = new Client({ connectionString: url, ssl: sslForUrl(url), connectionTimeoutMillis: 10000, application_name: "agentix-migrate" });
+  try {
+    await client.connect();
+    const tables = await client.query(
+      "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('outbox_messages','outbox_attempts','foundation_demo_requests','foundation_demo_effects')"
+    );
+    if (tables.rows[0].n !== 4) return { ok: false, detail: `only ${tables.rows[0].n}/4 foundation tables exist` };
+
+    const history = await client.query(
+      `SELECT count(*)::int AS n FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND migration_name LIKE '%001_solution_foundation%'`
+    );
+    if (history.rows[0].n < 1) return { ok: false, detail: "001_solution_foundation is not recorded in _prisma_migrations" };
+
+    return { ok: true, detail: "4/4 foundation tables and the 001_solution_foundation history row" };
+  } catch (error) {
+    return { ok: false, detail: `verification query failed (${error.code ?? error.name})` };
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+const isDirectRun = process.argv[1] ? process.argv[1].endsWith("migrate-deploy.mjs") : false;
+if (isDirectRun) {
+  main().catch((error) => {
+    fail(`unexpected failure: ${error?.message ?? error}`, "Re-run the build; if it persists, run `npm run db:status` manually.");
+  });
+}

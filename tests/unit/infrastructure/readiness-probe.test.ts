@@ -170,3 +170,55 @@ describe("migration readiness probe", () => {
     expect(PROBE_TIMEOUT_MS).toBe(2000);
   });
 });
+
+describe("readiness probe diagnostics", () => {
+  it("distinguishes a schema without migration history from an empty database", async () => {
+    // `db push` (or a hand-run migration.sql) leaves the tables but no _prisma_migrations:
+    // `migrate deploy` would then fail with P3005, so the operator needs `migrate resolve`.
+    const schemaPresent = fakePool((call) => {
+      if (call.sql.includes("to_regclass") && String(call.params?.[0]).includes("_prisma_migrations")) {
+        return { rows: [{ present: null }] };
+      }
+      if (call.sql.includes("to_regclass")) return { rows: [{ present: "outbox_messages" }] };
+      return { rows: [] };
+    });
+    const drifted = new MigrationReadinessProbe({ getPool: () => schemaPresent, env: environment });
+    await expect(drifted.check()).resolves.toMatchObject({ reason: "migration_history_drift", dependency: "schema" });
+
+    const emptyDatabase = fakePool((call) => {
+      if (call.sql.includes("to_regclass")) return { rows: [{ present: null }] };
+      return { rows: [] };
+    });
+    const empty = new MigrationReadinessProbe({ getPool: () => emptyDatabase, env: environment });
+    await expect(empty.check()).resolves.toMatchObject({ reason: "migration_table_missing", dependency: "schema" });
+  });
+
+  it("logs the credential-free target so a wrong database is visible", async () => {
+    const { createLogger, createTestSink, setGlobalLogger } = await import("@/infrastructure/observability/logger");
+    const sink = createTestSink();
+    setGlobalLogger(createLogger({ level: "debug", sink: sink as unknown as { write: (obj: unknown) => void } }));
+
+    const probe = new MigrationReadinessProbe({
+      getPool: () => ({
+        connect: async () => {
+          throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+        },
+      }),
+      env: {
+        POSTGRES_PRISMA_URL: "postgresql://postgres.abcdefgh:supersecret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
+      } as unknown as NodeJS.ProcessEnv,
+    });
+
+    await probe.check();
+
+    const line = JSON.stringify(sink.getLogs());
+    expect(line).toContain("readinessProbe");
+    expect(line).toContain("aws-0-eu-west-1.pooler.supabase.com");
+    expect(line).toContain("6543");
+    expect(line).toContain("POSTGRES_PRISMA_URL");
+    expect(line).toContain("ECONNREFUSED");
+    // Never the credential, never the full URL.
+    expect(line).not.toContain("supersecret");
+    expect(line).not.toContain("postgresql://");
+  });
+});

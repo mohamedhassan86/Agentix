@@ -156,3 +156,4 @@ notes/
 *.orig
 *.rej
 *.tsbuildinfo
+.agentix/

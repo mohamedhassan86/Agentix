@@ -206,10 +206,12 @@ npm run lint && npm test && npm run build && npm run license:check && npm run ar
 - Worker notices work within 2s, shutdown within 30s
 - Migrations: `npm run db:migrate:deploy` resolves the direct/session connection (`DIRECT_URL`,
   `POSTGRES_URL_NON_POOLING`, …), refuses a transaction pooler on port 6543, and never prints a credential
-- Host build: `npm run build:vercel` = generate Prisma client → apply pending migrations → `next build`
-  (wired in `vercel.json`); migrations run from Production builds only (preview builds log the target
-  and skip, never failing the check); escape hatches: `SKIP_DB_MIGRATE`, `DB_MIGRATE_OPTIONAL`,
-  `DB_MIGRATE_ON_PREVIEW`
+- Host build: `npm run build:vercel` = generate Prisma client → apply pending migrations (then verify
+  the schema really landed) → `next build`, wired in `vercel.json`; migrations run from Production
+  builds only (preview builds log the target and skip, never failing the check). A production build
+  that starts without the migration step is called out in the build log by `next.config.ts`
+  (`AGENTIX_REQUIRE_MIGRATION_MARKER=true` makes it fatal); escape hatches: `SKIP_DB_MIGRATE`,
+  `DB_MIGRATE_OPTIONAL`, `DB_MIGRATE_ON_PREVIEW`
 - Readiness failures answer `503 application/problem+json` with `code`, `dependency`, and a closed-set
   `reason` (`database_url_missing`, `connection_refused`, `tls_handshake_failed`, `migration_table_missing`, …)
   plus remediation; the probe logs the same reason with the driver code (no message, no credential)

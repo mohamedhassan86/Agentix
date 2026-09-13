@@ -173,6 +173,40 @@ The UI shows the same fields (dependency, code, reason, correlation id) plus the
 - `/health/ready` is bounded to 2 s and answers either 200 `{status:"ready"}` or
   `503` `application/problem+json` with `code`, `dependency`, `reason`, and a remediation `detail`.
 
+## "Schema not ready" after a deploy
+
+`SCHEMA_NOT_READY` / `dependency: schema` means connectivity is fine and the *schema* is missing.
+Work through it in this order:
+
+```bash
+npm run db:diagnose            # which database does this environment actually reach?
+npm run db:migrate:deploy      # with DIRECT_URL on port 5432 (session/direct)
+# then redeploy, or just retry - the probe re-reads the schema on every request
+```
+
+| Reason | Means | Fix |
+| --- | --- | --- |
+| `migration_table_missing` | Reachable database, no `_prisma_migrations` at all | `npm run db:migrate:deploy` (direct port 5432), then retry |
+| `migration_history_drift` | The tables exist but Prisma has no history (`db push`, hand-run `migration.sql`) | `npx prisma migrate resolve --applied 20250912000000_001_solution_foundation` |
+| `no_migrations_applied` | History table exists and is empty | `npm run db:migrate:deploy` |
+| `foundation_migration_not_applied` | Other migrations recorded, foundation missing | `npm run db:migrate:deploy` |
+
+Three causes account for almost every occurrence:
+
+1. **The build never migrated.** Vercel's *dashboard* Build Command overrides `vercel.json`; if it
+   is still `next build`, no migration runs. `next.config.ts` now prints a loud warning in the build
+   log when a production build starts without the migration step (set
+   `AGENTIX_REQUIRE_MIGRATION_MARKER=true` to make it fail the build instead).
+2. **This is a preview deployment.** Preview/Development builds skip migrations by design (they
+   share the production connection string, failing them would red every PR). Preview URLs will
+   therefore show `migration_table_missing` until Production is deployed, or
+   `DB_MIGRATE_ON_PREVIEW=true` is set.
+3. **The build migrated a different database than the app reaches.** The build log prints
+   `[migrate] target=host:port/db source=DIRECT_URL`, and every readiness failure logs
+   `databaseHost`, `databasePort`, `databaseName` and `urlVariableName`. If those two lines disagree,
+   `DIRECT_URL` and `DATABASE_URL` are pointed at different projects - the usual cause is mixing
+   the Vercel Postgres integration variables with a Supabase connection string.
+
 ## Troubleshooting log lines
 
 The route dispatcher logs stable machine fields only (no driver messages, no connection strings):
