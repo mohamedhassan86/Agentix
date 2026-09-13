@@ -1,16 +1,17 @@
 import type { PrismaClient } from "../../../generated/prisma/client";
-import type { Membership } from "../../../domain/identity/entities/membership";
+import { Membership } from "../../../domain/identity/entities/membership";
+import type { Membership as MembershipType } from "../../../domain/identity/entities/membership";
 
 export class MembershipRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(id: string): Promise<Membership | null> {
+  async findById(id: string): Promise<MembershipType | null> {
     const row = await (this.prisma.membership as any).findUnique({ where: { id } });
     if (!row) return null;
     return this.mapToDomain(row);
   }
 
-  async findActiveByOrgAndUser(orgId: string, userId: string): Promise<Membership | null> {
+  async findActiveByOrgAndUser(orgId: string, userId: string): Promise<MembershipType | null> {
     const row = await (this.prisma.membership as any).findFirst({
       where: { orgId, userId, endedAt: null },
     });
@@ -18,7 +19,7 @@ export class MembershipRepository {
     return this.mapToDomain(row);
   }
 
-  async findAnyByOrgAndUser(orgId: string, userId: string): Promise<Membership | null> {
+  async findAnyByOrgAndUser(orgId: string, userId: string): Promise<MembershipType | null> {
     const row = await (this.prisma.membership as any).findFirst({
       where: { orgId, userId },
       orderBy: { createdAt: "desc" },
@@ -27,7 +28,7 @@ export class MembershipRepository {
     return this.mapToDomain(row);
   }
 
-  async findFormerByOrgAndUser(orgId: string, userId: string): Promise<Membership | null> {
+  async findFormerByOrgAndUser(orgId: string, userId: string): Promise<MembershipType | null> {
     const row = await (this.prisma.membership as any).findFirst({
       where: { orgId, userId, endedAt: { not: null } },
       orderBy: { endedAt: "desc" },
@@ -66,7 +67,7 @@ export class MembershipRepository {
     return counts;
   }
 
-  async create(membership: Membership): Promise<void> {
+  async create(membership: MembershipType): Promise<void> {
     await (this.prisma.membership as any).create({
       data: {
         id: membership.id,
@@ -83,7 +84,7 @@ export class MembershipRepository {
     });
   }
 
-  async update(membership: Membership): Promise<void> {
+  async update(membership: MembershipType): Promise<void> {
     await (this.prisma.membership as any).update({
       where: { id: membership.id, version: membership.version - 1 },
       data: {
@@ -103,8 +104,7 @@ export class MembershipRepository {
     });
   }
 
-  private mapToDomain(row: any): Membership {
-    const { Membership } = require("../../../domain/identity/entities/membership");
+  private mapToDomain(row: any): MembershipType {
     return Membership.create({
       id: row.id,
       orgId: row.orgId,

@@ -3,7 +3,6 @@
  */
 
 import type { OrganizationRole, InvitableRole } from "../value-objects/organization-role";
-import { isAtLeastRole } from "../value-objects/organization-role";
 
 export class MembershipPolicy {
   static canInvite(role: OrganizationRole | null): boolean {

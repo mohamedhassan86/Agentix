@@ -11,7 +11,7 @@ export class PlatformPolicy {
     return isPlatformAdmin;
   }
 
-  static canMutate(isPlatformAdmin: boolean): boolean {
+  static canMutate(_isPlatformAdmin: boolean): boolean {
     // Platform admin MUST NOT mutate tenant data
     return false;
   }

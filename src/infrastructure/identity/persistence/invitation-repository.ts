@@ -1,16 +1,17 @@
 import type { PrismaClient } from "../../../generated/prisma/client";
-import type { Invitation } from "../../../domain/identity/entities/invitation";
+import { Invitation } from "../../../domain/identity/entities/invitation";
+import type { Invitation as InvitationType } from "../../../domain/identity/entities/invitation";
 
 export class InvitationRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(id: string): Promise<Invitation | null> {
+  async findById(id: string): Promise<InvitationType | null> {
     const row = await (this.prisma.invitation as any).findUnique({ where: { id } });
     if (!row) return null;
     return this.mapToDomain(row);
   }
 
-  async findPendingByOrgAndEmail(orgId: string, emailNormalized: string): Promise<Invitation | null> {
+  async findPendingByOrgAndEmail(orgId: string, emailNormalized: string): Promise<InvitationType | null> {
     const row = await (this.prisma.invitation as any).findFirst({
       where: {
         orgId,
@@ -52,7 +53,7 @@ export class InvitationRepository {
     return { items: items.map((r: any) => this.mapToDomain(r)), raw: items, nextCursor };
   }
 
-  async create(invitation: Invitation): Promise<void> {
+  async create(invitation: InvitationType): Promise<void> {
     await (this.prisma.invitation as any).create({
       data: {
         id: invitation.id,
@@ -74,7 +75,7 @@ export class InvitationRepository {
     });
   }
 
-  async update(invitation: Invitation): Promise<void> {
+  async update(invitation: InvitationType): Promise<void> {
     await (this.prisma.invitation as any).update({
       where: { id: invitation.id, version: invitation.version - 1 },
       data: {
@@ -93,7 +94,6 @@ export class InvitationRepository {
   }
 
   async materializeExpiredPending(orgId: string, emailNormalized: string, now: Date): Promise<void> {
-    // Before issuing new invite, expired pending rows are materialized as expired in same transaction
     await (this.prisma.invitation as any).updateMany({
       where: {
         orgId,
@@ -108,8 +108,7 @@ export class InvitationRepository {
     });
   }
 
-  private mapToDomain(row: any): Invitation {
-    const { Invitation } = require("../../../domain/identity/entities/invitation");
+  private mapToDomain(row: any): InvitationType {
     return Invitation.create({
       id: row.id,
       orgId: row.orgId,

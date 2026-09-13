@@ -1,16 +1,17 @@
 import type { PrismaClient } from "../../../generated/prisma/client";
-import type { OneTimeToken } from "../../../domain/identity/entities/one-time-token";
+import { OneTimeToken } from "../../../domain/identity/entities/one-time-token";
+import type { OneTimeToken as OneTimeTokenType } from "../../../domain/identity/entities/one-time-token";
 
 export class TokenRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(id: string): Promise<OneTimeToken | null> {
+  async findById(id: string): Promise<OneTimeTokenType | null> {
     const row = await (this.prisma.oneTimeToken as any).findUnique({ where: { id } });
     if (!row) return null;
     return this.mapToDomain(row);
   }
 
-  async findByDigest(purpose: string, digest: Uint8Array): Promise<OneTimeToken | null> {
+  async findByDigest(purpose: string, digest: Uint8Array): Promise<OneTimeTokenType | null> {
     const row = await (this.prisma.oneTimeToken as any).findFirst({
       where: { purpose: purpose as any, tokenDigest: digest as any },
     });
@@ -18,7 +19,7 @@ export class TokenRepository {
     return this.mapToDomain(row);
   }
 
-  async findLatestByUserAndPurpose(userId: string, purpose: string): Promise<OneTimeToken | null> {
+  async findLatestByUserAndPurpose(userId: string, purpose: string): Promise<OneTimeTokenType | null> {
     const row = await (this.prisma.oneTimeToken as any).findFirst({
       where: { userId, purpose: purpose as any },
       orderBy: { version: "desc" },
@@ -27,7 +28,7 @@ export class TokenRepository {
     return this.mapToDomain(row);
   }
 
-  async findLatestByInvitation(invitationId: string): Promise<OneTimeToken | null> {
+  async findLatestByInvitation(invitationId: string): Promise<OneTimeTokenType | null> {
     const row = await (this.prisma.oneTimeToken as any).findFirst({
       where: { invitationId },
       orderBy: { version: "desc" },
@@ -36,7 +37,7 @@ export class TokenRepository {
     return this.mapToDomain(row);
   }
 
-  async create(token: OneTimeToken): Promise<void> {
+  async create(token: OneTimeTokenType): Promise<void> {
     await (this.prisma.oneTimeToken as any).create({
       data: {
         id: token.id,
@@ -54,7 +55,7 @@ export class TokenRepository {
     });
   }
 
-  async update(token: OneTimeToken): Promise<void> {
+  async update(token: OneTimeTokenType): Promise<void> {
     await (this.prisma.oneTimeToken as any).update({
       where: { id: token.id },
       data: {
@@ -81,8 +82,7 @@ export class TokenRepository {
     });
   }
 
-  private mapToDomain(row: any): OneTimeToken {
-    const { OneTimeToken } = require("../../../domain/identity/entities/one-time-token");
+  private mapToDomain(row: any): OneTimeTokenType {
     return OneTimeToken.create({
       id: row.id,
       purpose: row.purpose,

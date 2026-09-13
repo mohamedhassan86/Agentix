@@ -1,16 +1,17 @@
 import type { PrismaClient } from "../../../generated/prisma/client";
-import type { Organization } from "../../../domain/identity/entities/organization";
+import { Organization } from "../../../domain/identity/entities/organization";
+import type { Organization as OrganizationType } from "../../../domain/identity/entities/organization";
 
 export class OrganizationRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(id: string): Promise<Organization | null> {
+  async findById(id: string): Promise<OrganizationType | null> {
     const row = await (this.prisma.organization as any).findUnique({ where: { id } });
     if (!row) return null;
     return this.mapToDomain(row);
   }
 
-  async findBySlug(slug: string): Promise<Organization | null> {
+  async findBySlug(slug: string): Promise<OrganizationType | null> {
     const row = await (this.prisma.organization as any).findUnique({
       where: { slug: slug.toLowerCase().trim() },
     });
@@ -18,7 +19,7 @@ export class OrganizationRepository {
     return this.mapToDomain(row);
   }
 
-  async create(org: Organization): Promise<void> {
+  async create(org: OrganizationType): Promise<void> {
     await (this.prisma.organization as any).create({
       data: {
         id: org.id,
@@ -33,7 +34,7 @@ export class OrganizationRepository {
     });
   }
 
-  async update(org: Organization): Promise<void> {
+  async update(org: OrganizationType): Promise<void> {
     await (this.prisma.organization as any).update({
       where: { id: org.id, version: org.version - 1 },
       data: {
@@ -71,8 +72,7 @@ export class OrganizationRepository {
     return { items, nextCursor };
   }
 
-  private mapToDomain(row: any): Organization {
-    const { Organization } = require("../../../domain/identity/entities/organization");
+  private mapToDomain(row: any): OrganizationType {
     return Organization.create({
       id: row.id,
       name: row.name,

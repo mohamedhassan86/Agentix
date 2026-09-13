@@ -1,16 +1,17 @@
 import type { PrismaClient } from "../../../generated/prisma/client";
-import type { UserAccount } from "../../../domain/identity/entities/user-account";
+import { UserAccount } from "../../../domain/identity/entities/user-account";
+import type { UserAccount as UserAccountType } from "../../../domain/identity/entities/user-account";
 
 export class UserRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(id: string): Promise<UserAccount | null> {
+  async findById(id: string): Promise<UserAccountType | null> {
     const row = await (this.prisma.user as any).findUnique({ where: { id } });
     if (!row) return null;
     return this.mapToDomain(row);
   }
 
-  async findByEmailNormalized(emailNormalized: string): Promise<UserAccount | null> {
+  async findByEmailNormalized(emailNormalized: string): Promise<UserAccountType | null> {
     const row = await (this.prisma.user as any).findUnique({
       where: { emailNormalized: emailNormalized.toLowerCase().trim() },
     });
@@ -18,7 +19,7 @@ export class UserRepository {
     return this.mapToDomain(row);
   }
 
-  async create(user: UserAccount): Promise<void> {
+  async create(user: UserAccountType): Promise<void> {
     await (this.prisma.user as any).create({
       data: {
         id: user.id,
@@ -35,7 +36,7 @@ export class UserRepository {
     });
   }
 
-  async update(user: UserAccount): Promise<void> {
+  async update(user: UserAccountType): Promise<void> {
     await (this.prisma.user as any).update({
       where: { id: user.id, version: user.version - 1 },
       data: {
@@ -64,8 +65,7 @@ export class UserRepository {
     });
   }
 
-  private mapToDomain(row: any): UserAccount {
-    const { UserAccount } = require("../../../domain/identity/entities/user-account");
+  private mapToDomain(row: any): UserAccountType {
     return UserAccount.create({
       id: row.id,
       emailNormalized: row.emailNormalized,

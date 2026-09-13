@@ -2,12 +2,12 @@
  * AES-256-GCM encryption - Node crypto, AAD binds id/kind/recipientHash/keyVersion
  */
 
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
 import type { MessageEncryption, EncryptedPayload } from "../../../application/identity/ports/message-encryption";
 import { getConfig } from "../../config/load-config";
 
 export class AesGcmEncryption implements MessageEncryption {
-  private getKey(keyVersion?: number): Buffer {
+  private getKey(_keyVersion?: number): Buffer {
     const config = getConfig();
     const keyB64 = config.messaging.deliveryKey;
     // Support base64 or raw string - if not valid base64, hash it to 32 bytes
@@ -15,12 +15,9 @@ export class AesGcmEncryption implements MessageEncryption {
     try {
       key = Buffer.from(keyB64, "base64");
       if (key.length !== 32) {
-        // If not 32 bytes, try to use as utf8 and pad/truncate via SHA256
-        const { createHash } = require("crypto");
         key = createHash("sha256").update(keyB64).digest();
       }
     } catch {
-      const { createHash } = require("crypto");
       key = createHash("sha256").update(keyB64).digest();
     }
     return key;

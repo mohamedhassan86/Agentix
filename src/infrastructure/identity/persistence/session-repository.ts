@@ -1,16 +1,17 @@
 import type { PrismaClient } from "../../../generated/prisma/client";
-import type { Session } from "../../../domain/identity/entities/session";
+import { Session } from "../../../domain/identity/entities/session";
+import type { Session as SessionType } from "../../../domain/identity/entities/session";
 
 export class SessionRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async findById(id: string): Promise<Session | null> {
+  async findById(id: string): Promise<SessionType | null> {
     const row = await (this.prisma.session as any).findUnique({ where: { id } });
     if (!row) return null;
     return this.mapToDomain(row);
   }
 
-  async findByDigest(digest: Uint8Array): Promise<Session | null> {
+  async findByDigest(digest: Uint8Array): Promise<SessionType | null> {
     const row = await (this.prisma.session as any).findUnique({
       where: { sessionTokenDigest: digest as any },
     });
@@ -18,7 +19,7 @@ export class SessionRepository {
     return this.mapToDomain(row);
   }
 
-  async create(session: Session): Promise<void> {
+  async create(session: SessionType): Promise<void> {
     await (this.prisma.session as any).create({
       data: {
         id: session.id,
@@ -35,7 +36,7 @@ export class SessionRepository {
     });
   }
 
-  async update(session: Session): Promise<void> {
+  async update(session: SessionType): Promise<void> {
     await (this.prisma.session as any).update({
       where: { id: session.id, version: session.version - 1 },
       data: {
@@ -71,8 +72,7 @@ export class SessionRepository {
     });
   }
 
-  private mapToDomain(row: any): Session {
-    const { Session } = require("../../../domain/identity/entities/session");
+  private mapToDomain(row: any): SessionType {
     return Session.create({
       id: row.id,
       sessionTokenDigest: row.sessionTokenDigest,
