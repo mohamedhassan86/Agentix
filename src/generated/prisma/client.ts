@@ -4,11 +4,38 @@
  * This stub allows build and unit tests to pass without DB.
  */
 
+type ModelStub = {
+  findMany: (...args: any[]) => Promise<any[]>;
+  findUnique: (...args: any[]) => Promise<any | null>;
+  findFirst: (...args: any[]) => Promise<any | null>;
+  create: (...args: any[]) => Promise<any>;
+  update: (...args: any[]) => Promise<any>;
+  updateMany: (...args: any[]) => Promise<any>;
+  createMany: (...args: any[]) => Promise<any>;
+  deleteMany: (...args: any[]) => Promise<any>;
+  count: (...args: any[]) => Promise<number>;
+  groupBy: (...args: any[]) => Promise<any[]>;
+};
+
+function makeStub(): ModelStub {
+  return {
+    findMany: async () => [],
+    findUnique: async () => null,
+    findFirst: async () => null,
+    create: async () => ({}),
+    update: async () => ({}),
+    updateMany: async () => ({}),
+    createMany: async () => ({}),
+    deleteMany: async () => ({}),
+    count: async () => 0,
+    groupBy: async () => [],
+  };
+}
+
 export class PrismaClient {
   constructor(_options?: any) {}
 
   $transaction<T>(fn: (tx: any) => Promise<T>): Promise<T> {
-    // For stub, just execute without transaction
     return fn(this as any);
   }
 
@@ -20,33 +47,18 @@ export class PrismaClient {
     return Promise.resolve();
   }
 
-  // Mock models - will be overridden by real client
-  outboxMessage = {
-    findMany: async () => [],
-    findUnique: async () => null,
-    findFirst: async () => null,
-    create: async () => ({}),
-    update: async () => ({}),
-  };
+  outboxMessage = makeStub();
+  outboxAttempt = makeStub();
+  foundationDemoRequest = makeStub();
+  foundationDemoEffect = makeStub();
 
-  outboxAttempt = {
-    findMany: async () => [],
-    findFirst: async () => null,
-    findUnique: async () => null,
-    create: async () => ({}),
-    update: async () => ({}),
-  };
-
-  foundationDemoRequest = {
-    findUnique: async () => null,
-    findFirst: async () => null,
-    create: async () => ({}),
-    update: async () => ({}),
-  };
-
-  foundationDemoEffect = {
-    findUnique: async () => null,
-    findFirst: async () => null,
-    create: async () => ({}),
-  };
+  // Identity models
+  user = makeStub();
+  organization = makeStub();
+  membership = makeStub();
+  invitation = makeStub();
+  oneTimeToken = makeStub();
+  session = makeStub();
+  loginThrottle = makeStub();
+  identityEvent = makeStub();
 }

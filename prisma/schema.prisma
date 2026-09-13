@@ -34,6 +34,79 @@ enum AttemptOutcome {
   @@map("attempt_outcome")
 }
 
+enum OrganizationRole {
+  viewer
+  member
+  admin
+  owner
+
+  @@map("organization_role")
+}
+
+enum InvitableRole {
+  viewer
+  member
+  admin
+
+  @@map("invitable_role")
+}
+
+enum InvitationStatus {
+  pending
+  accepted
+  expired
+  revoked
+
+  @@map("invitation_status")
+}
+
+enum DeliveryState {
+  queued
+  sent
+  failed
+
+  @@map("delivery_state")
+}
+
+enum MembershipEndReason {
+  left
+  removed
+  organization_deleted
+  account_deleted
+
+  @@map("membership_end_reason")
+}
+
+enum TokenPurpose {
+  email_verification
+  invitation_acceptance
+
+  @@map("token_purpose")
+}
+
+enum IdentityEventType {
+  account_registered
+  account_email_verified
+  account_deleted
+  organization_created
+  organization_profile_changed
+  organization_ownership_transferred
+  organization_deleted
+  membership_joined
+  membership_role_changed
+  membership_removed
+  membership_left
+  invitation_created
+  invitation_resent
+  invitation_revoked
+  invitation_expired
+  invitation_accepted
+  message_delivery_succeeded
+  message_delivery_failed
+
+  @@map("identity_event_type")
+}
+
 model OutboxMessage {
   id             String       @id @db.Uuid
   workType       String       @map("work_type") @db.VarChar(120)
@@ -57,6 +130,15 @@ model OutboxMessage {
   completedAt    DateTime?    @map("completed_at") @db.Timestamptz
   updatedAt      DateTime     @map("updated_at") @db.Timestamptz @updatedAt
 
+  // Identity extension - encrypted envelope for token-bearing messages
+  messageKind      String? @map("message_kind") @db.VarChar(50)
+  recipientHash    String? @map("recipient_hash") @db.VarChar(200)
+  ciphertext       Bytes?  @map("ciphertext") @db.ByteA
+  nonce            Bytes?  @map("nonce") @db.ByteA
+  tag              Bytes?  @map("tag") @db.ByteA
+  keyVersion       Int?    @map("key_version") @db.SmallInt
+  encryptedAt      DateTime? @map("encrypted_at") @db.Timestamptz
+
   attempts OutboxAttempt[]
   demoEffect FoundationDemoEffect?
 
@@ -65,6 +147,7 @@ model OutboxMessage {
   @@index([orgId, createdAt, id], map: "outbox_org_idx")
   @@index([correlationId, createdAt, id], map: "outbox_correlation_idx")
   @@index([status, completedAt], map: "outbox_status_completed_idx")
+  @@index([messageKind, createdAt], map: "outbox_message_kind_idx")
 }
 
 model OutboxAttempt {
@@ -116,3 +199,177 @@ model FoundationDemoEffect {
   @@map("foundation_demo_effects")
   @@index([correlationId, appliedAt], map: "demo_effect_correlation_idx")
 }
+
+model User {
+  id               String    @id @db.Uuid
+  emailNormalized  String    @unique @map("email_normalized") @db.Text
+  displayName      String    @map("display_name") @db.VarChar(120)
+  passwordHash     String    @map("password_hash") @db.Text
+  emailVerifiedAt  DateTime? @map("email_verified_at") @db.Timestamptz
+  isPlatformAdmin  Boolean   @default(false) @map("is_platform_admin")
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt        DateTime  @map("created_at") @db.Timestamptz @default(now())
+  updatedAt        DateTime  @map("updated_at") @db.Timestamptz @updatedAt
+  version          Int       @default(1)
+
+  memberships Membership[]
+  sessions    Session[]
+  invitationsSent Invitation[] @relation("Inviter")
+  invitationsAccepted Invitation[] @relation("AcceptedUser")
+  tokens OneTimeToken[]
+  identityEvents IdentityEvent[] @relation("Actor")
+  identityEventsSubject IdentityEvent[] @relation("Subject")
+
+  @@map("users")
+  @@index([isPlatformAdmin, deletedAt], map: "user_platform_admin_idx")
+}
+
+model Organization {
+  id          String    @id @db.Uuid
+  name        String    @db.VarChar(120)
+  slug        String    @unique @db.VarChar(48)
+  ownerUserId String    @map("owner_user_id") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt   DateTime  @map("created_at") @db.Timestamptz @default(now())
+  updatedAt   DateTime  @map("updated_at") @db.Timestamptz @updatedAt
+  version     Int       @default(1)
+
+  memberships Membership[]
+  invitations Invitation[]
+  tokens OneTimeToken[]
+  identityEvents IdentityEvent[]
+
+  @@map("organizations")
+  @@index([createdAt, id], map: "organization_created_idx")
+}
+
+model Membership {
+  id         String               @id @db.Uuid
+  orgId      String               @map("org_id") @db.Uuid
+  userId     String               @map("user_id") @db.Uuid
+  role       OrganizationRole
+  joinedAt   DateTime             @map("joined_at") @db.Timestamptz
+  endedAt    DateTime?            @map("ended_at") @db.Timestamptz
+  endReason  MembershipEndReason?  @map("end_reason")
+  createdAt  DateTime             @map("created_at") @db.Timestamptz @default(now())
+  updatedAt  DateTime             @map("updated_at") @db.Timestamptz @updatedAt
+  version    Int                  @default(1)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@map("memberships")
+  @@unique([orgId, userId, id], map: "membership_org_user_id_unique")
+  @@index([orgId, userId], map: "membership_org_user_idx")
+  @@index([orgId, role, endedAt, userId], map: "membership_org_role_idx")
+  @@index([userId, endedAt, orgId], map: "membership_user_org_idx")
+  @@index([orgId, createdAt, id], map: "membership_org_created_idx")
+}
+
+model Invitation {
+  id                    String           @id @db.Uuid
+  orgId                 String           @map("org_id") @db.Uuid
+  emailNormalized       String           @map("email_normalized") @db.Text
+  role                  InvitableRole
+  status                InvitationStatus @default(pending)
+  inviterUserId         String           @map("inviter_user_id") @db.Uuid
+  acceptedUserId        String?          @map("accepted_user_id") @db.Uuid
+  expiresAt             DateTime         @map("expires_at") @db.Timestamptz
+  acceptedAt            DateTime?        @map("accepted_at") @db.Timestamptz
+  revokedAt             DateTime?        @map("revoked_at") @db.Timestamptz
+  deliveryState         DeliveryState    @default(queued) @map("delivery_state")
+  lastDeliveryErrorCode String?          @map("last_delivery_error_code") @db.VarChar(120)
+  createdAt             DateTime         @map("created_at") @db.Timestamptz @default(now())
+  updatedAt             DateTime         @map("updated_at") @db.Timestamptz @updatedAt
+  version               Int              @default(1)
+
+  organization Organization @relation(fields: [orgId], references: [id])
+  inviter      User         @relation("Inviter", fields: [inviterUserId], references: [id])
+  acceptedUser User?        @relation("AcceptedUser", fields: [acceptedUserId], references: [id])
+  tokens       OneTimeToken[]
+
+  @@map("invitations")
+  @@index([orgId, status, createdAt, id], map: "invitation_org_status_idx")
+  @@index([orgId, emailNormalized, status], map: "invitation_org_email_status_idx")
+  @@index([createdAt, id], map: "invitation_created_idx")
+}
+
+model OneTimeToken {
+  id           String       @id @db.Uuid
+  purpose      TokenPurpose
+  userId       String?      @map("user_id") @db.Uuid
+  invitationId String?      @map("invitation_id") @db.Uuid
+  orgId        String?      @map("org_id") @db.Uuid
+  tokenDigest  Bytes        @map("token_digest") @db.ByteA
+  version      Int          @default(1)
+  expiresAt    DateTime     @map("expires_at") @db.Timestamptz
+  consumedAt   DateTime?    @map("consumed_at") @db.Timestamptz
+  revokedAt    DateTime?    @map("revoked_at") @db.Timestamptz
+  createdAt    DateTime     @map("created_at") @db.Timestamptz @default(now())
+
+  user       User?       @relation(fields: [userId], references: [id])
+  invitation Invitation? @relation(fields: [invitationId], references: [id])
+  organization Organization? @relation(fields: [orgId], references: [id])
+
+  @@map("one_time_tokens")
+  @@unique([purpose, tokenDigest], map: "token_purpose_digest_unique")
+  @@index([orgId, invitationId, version], map: "token_org_invitation_version_idx")
+  @@index([userId, purpose, version], map: "token_user_purpose_version_idx")
+  @@index([expiresAt], map: "token_expires_idx")
+}
+
+model Session {
+  id                 String    @id @db.Uuid
+  sessionTokenDigest Bytes     @unique @map("session_token_digest") @db.ByteA
+  userId             String    @map("user_id") @db.Uuid
+  activeOrgId        String?   @map("active_org_id") @db.Uuid
+  expiresAt          DateTime  @map("expires_at") @db.Timestamptz
+  lastSeenAt         DateTime  @map("last_seen_at") @db.Timestamptz
+  createdAt          DateTime  @map("created_at") @db.Timestamptz @default(now())
+  updatedAt          DateTime  @map("updated_at") @db.Timestamptz @updatedAt
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz
+  version            Int       @default(1)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("sessions")
+  @@index([userId, revokedAt, expiresAt], map: "session_user_revoked_expires_idx")
+  @@index([activeOrgId, revokedAt], map: "session_active_org_revoked_idx")
+  @@index([createdAt, id], map: "session_created_idx")
+}
+
+model LoginThrottle {
+  emailKey         Bytes    @id @map("email_key") @db.ByteA
+  failedCount      Int      @map("failed_count") @db.SmallInt @default(0)
+  windowStartedAt  DateTime @map("window_started_at") @db.Timestamptz @default(now())
+  lockedUntil      DateTime? @map("locked_until") @db.Timestamptz
+  updatedAt        DateTime @map("updated_at") @db.Timestamptz @updatedAt
+
+  @@map("login_throttles")
+  @@index([lockedUntil], map: "throttle_locked_until_idx")
+  @@index([updatedAt], map: "throttle_updated_idx")
+}
+
+model IdentityEvent {
+  id            String             @id @db.Uuid
+  orgId         String?            @map("org_id") @db.Uuid
+  actorUserId   String?            @map("actor_user_id") @db.Uuid
+  subjectUserId String?            @map("subject_user_id") @db.Uuid
+  eventType     IdentityEventType  @map("event_type")
+  objectType    String             @map("object_type") @db.VarChar(50)
+  objectId      String             @map("object_id") @db.Uuid
+  payload       Json               @db.JsonB
+  occurredAt    DateTime           @map("occurred_at") @db.Timestamptz @default(now())
+  sequence      BigInt             @map("sequence")
+
+  organization Organization? @relation(fields: [orgId], references: [id])
+  actor        User?         @relation("Actor", fields: [actorUserId], references: [id])
+  subject      User?         @relation("Subject", fields: [subjectUserId], references: [id])
+
+  @@map("identity_events")
+  @@index([orgId, sequence], map: "identity_event_org_sequence_idx")
+  @@index([subjectUserId, occurredAt, id], map: "identity_event_subject_time_idx")
+  @@index([eventType, occurredAt], map: "identity_event_type_time_idx")
+  @@index([occurredAt, id], map: "identity_event_occurred_idx")
+}
+

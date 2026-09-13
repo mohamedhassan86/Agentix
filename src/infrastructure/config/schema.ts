@@ -16,6 +16,14 @@ export const configSchema = z.object({
   foundation: z.object({
     demoEnabled: z.boolean().default(false),
   }),
+  auth: z.object({
+    secret: z.string().min(32, "AUTH_SECRET must be at least 32 characters").optional(),
+    sessionMaxAge: z.number().int().min(60).max(2592000).default(2592000),
+  }),
+  messaging: z.object({
+    deliveryKey: z.string().min(1).optional(),
+    deliveryKeyVersion: z.number().int().min(1).default(1),
+  }),
   log: z.object({
     level: z.enum(["debug", "info", "warn", "error"]).default("info"),
   }),
