@@ -115,7 +115,9 @@ export function createPrismaClient(): generatedClient.PrismaClient {
     return new PrismaClientCtor({ adapter: new adapterModule.PrismaPg(getPgPool()) } as never);
   }
 
-  return withStubGuard(new PrismaClientCtor(), guard);
+  // The stub ignores constructor options; a real v7 client requires an options object
+  // (with an adapter), so the call is typed loosely to compile against either shape.
+  return withStubGuard(new PrismaClientCtor({} as never), guard);
 }
 
 let prismaClient: generatedClient.PrismaClient | null = null;
