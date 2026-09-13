@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const signInRequestSchema = z.object({
-  email: z.string().email().max(254),
+  email: z.string().trim().email().max(254),
   password: z.string().min(1).max(1024),
 });
 

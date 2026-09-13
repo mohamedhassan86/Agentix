@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:performance": "vitest run tests/integration/performance",
     "test:policy": "node scripts/check-tests.mjs",
     "architecture:check": "node scripts/check-architecture.mjs",
     "openapi:generate": "tsx scripts/generate-openapi.ts",

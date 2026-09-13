@@ -65,6 +65,50 @@ describe("zero leakage - seeded markers", () => {
     }
   });
 
+  it("identity tokens, hashes, and delivery keys are redacted from events and OpenAPI", async () => {
+    const { createIdentityHarness } = await import("../../helpers/identity-harness");
+    const { createRegisterAccountHandler } = await import("@/application/identity/handlers/register-account-handler");
+    const { REGISTER_ACCOUNT_TYPE } = await import("@/application/identity/commands/register-account");
+    const { createRequestContext } = await import("@/application/shared/context/request-context");
+    const { mapErrorToProblem } = await import("@/app/lib/problem-response");
+
+    const harness = createIdentityHarness();
+    const handle = createRegisterAccountHandler(harness.deps);
+    const ctx = createRequestContext({ correlationId: "123e4567-e89b-12d3-a456-426614174000" });
+    const password = "supersecret-password";
+    await handle(
+      { type: REGISTER_ACCOUNT_TYPE, email: "redact@example.test", displayName: "Redact", password },
+      ctx,
+    );
+
+    const token = harness.store.lastCapturedToken();
+    expect(token).toBeTruthy();
+    const digestHex = Buffer.from((await harness.store.findLatestTokenByUserPurpose(
+      (await harness.store.findUserByEmailNormalized("redact@example.test"))!.id,
+      "email_verification",
+    ))!.tokenDigest).toString("hex");
+
+    const surfaces = [
+      JSON.stringify(harness.store.events),
+      JSON.stringify([...harness.store.outbox.values()].map((r) => ({
+        messageKind: r.messageKind,
+        recipientHash: r.recipientHash,
+        keyVersion: r.keyVersion,
+        lastErrorCode: r.lastErrorCode,
+      }))),
+      JSON.stringify(mapErrorToProblem(new Error(`Failed with ${password}`), ctx.correlationId)),
+    ];
+    for (const surface of surfaces) {
+      expect(surface).not.toContain(password);
+      expect(surface).not.toContain(token);
+      expect(surface).not.toContain(digestHex);
+    }
+
+    const user = await harness.store.findUserByEmailNormalized("redact@example.test");
+    expect(user!.passwordHash).not.toBe(password);
+    expect(user!.passwordHash).not.toContain(password);
+  });
+
   it("responses, health, contracts, snapshots contain zero markers", async () => {
     const { readFileSync, existsSync } = await import("node:fs");
     const { join } = await import("node:path");

@@ -28,8 +28,6 @@ describe("no business scope in foundation", () => {
     // So we check for forbidden route paths
     const appFiles = collectFiles("src/app", [".ts", ".tsx"]);
     const forbiddenPaths = [
-      "/auth",
-      "/organizations",
       "/projects",
       "/secrets",
       "/providers",

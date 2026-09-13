@@ -27,16 +27,23 @@ describe("scope inventory - no out-of-scope surface", () => {
     const routePaths = routes.map((f) => f.replace("src/app", "").replace("/route.ts", ""));
 
     for (const route of routePaths) {
-      const isFoundation =
+      const isAllowed =
         route.startsWith("/health") ||
         route.startsWith("/api/v1/ping") ||
-        route.startsWith("/api/v1/foundation");
-      expect(isFoundation || route === "" || route === "/", `Route ${route} should be foundation-only`).toBe(true);
+        route.startsWith("/api/v1/foundation") ||
+        route.startsWith("/api/v1/auth") ||
+        route.startsWith("/api/v1/account") ||
+        route.startsWith("/api/v1/session") ||
+        route.startsWith("/api/v1/organizations") ||
+        route.startsWith("/api/v1/organization") ||
+        route.startsWith("/api/v1/invitations") ||
+        route.startsWith("/api/v1/platform") ||
+        route.startsWith("/(auth)") ||
+        route.startsWith("/(identity)");
+      expect(isAllowed || route === "" || route === "/", `Route ${route} should be foundation or identity`).toBe(true);
     }
 
     const forbiddenRouteSegments = [
-      "auth",
-      "organizations",
       "projects",
       "secrets",
       "providers",
@@ -46,9 +53,6 @@ describe("scope inventory - no out-of-scope surface", () => {
       "webhooks",
       "simulator",
       "approval",
-      "accounts",
-      "memberships",
-      "roles",
     ];
 
     for (const route of routePaths) {

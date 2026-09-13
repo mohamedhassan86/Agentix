@@ -104,3 +104,25 @@ export class UnexpectedError extends AppError {
     });
   }
 }
+
+export class UnauthorizedError extends AppError {
+  constructor(message = "Invalid email or password", code: ErrorCode = ErrorCodes.AUTHENTICATION_FAILED) {
+    super(message, {
+      code,
+      status: 401,
+      title: "Authentication failed",
+      detail: message,
+    });
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message = "Permission denied", code: ErrorCode = ErrorCodes.PERMISSION_DENIED) {
+    super(message, {
+      code,
+      status: 403,
+      title: "Permission denied",
+      detail: message,
+    });
+  }
+}
