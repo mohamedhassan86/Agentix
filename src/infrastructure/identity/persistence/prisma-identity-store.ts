@@ -24,6 +24,8 @@ import { ThrottleRepository } from "./throttle-repository";
 import { IdentityEventRepository } from "./identity-event-repository";
 import { IdentityOutboxWriter } from "./outbox-extension";
 
+const orgLocks = new Map<string, Promise<void>>();
+
 export class PrismaIdentityStore implements IdentityStore {
   private readonly users: UserRepository;
   private readonly orgs: OrganizationRepository;
@@ -52,6 +54,21 @@ export class PrismaIdentityStore implements IdentityStore {
       const inner = new PrismaIdentityStore(tx);
       return fn(inner);
     });
+  }
+
+  async withOrgLock<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = orgLocks.get(orgId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    orgLocks.set(orgId, previous.then(() => gate));
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
   }
 
   findUserById(id: string) {

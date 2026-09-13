@@ -49,6 +49,7 @@ export interface OrgMembershipRow {
 
 export interface IdentityStore {
   transaction<T>(fn: (store: IdentityStore) => Promise<T>): Promise<T>;
+  withOrgLock<T>(orgId: string, fn: () => Promise<T>): Promise<T>;
 
   findUserById(id: string): Promise<UserAccount | null>;
   findUserByEmailNormalized(emailNormalized: string): Promise<UserAccount | null>;

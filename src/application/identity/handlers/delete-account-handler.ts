@@ -3,12 +3,16 @@ import { AccountDeleteBlockedError, OwnerInvariantError } from "@/domain/identit
 import { createIdentityEvent } from "@/domain/identity/events/identity-events";
 import type { DeleteAccountCommand } from "../commands/delete-account";
 import type { IdentityHandlerDeps } from "../ports/identity-store";
+import { ValidationError } from "@/application/shared/errors/app-error";
 import { identityAppError, requireActor, rethrowIdentity } from "../map-error";
 
 export function createDeleteAccountHandler(deps: IdentityHandlerDeps) {
-  return async (_command: DeleteAccountCommand, ctx: RequestContext): Promise<{ deleted: true }> => {
+  return async (command: DeleteAccountCommand, ctx: RequestContext): Promise<{ deleted: true }> => {
     requireActor(ctx.actor);
     try {
+      if (command.confirmation !== "DELETE") {
+        throw new ValidationError("Validation failed", { confirmation: ["Type DELETE to confirm"] });
+      }
       return await deps.store.transaction(async (store) => {
         const user = await store.findUserById(ctx.actor!.userId);
         if (!user || user.isDeleted()) {

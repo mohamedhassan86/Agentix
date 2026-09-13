@@ -40,6 +40,16 @@ import { createRevokeInvitationHandler } from "./handlers/revoke-invitation-hand
 import { createAcceptInvitationHandler } from "./handlers/accept-invitation-handler";
 import { createListInvitationsHandler } from "./handlers/list-invitations-handler";
 import { createPreviewInvitationHandler } from "./handlers/preview-invitation-handler";
+import { LIST_MEMBERS_TYPE } from "./queries/list-members";
+import { CHANGE_MEMBER_ROLE_TYPE } from "./commands/change-member-role";
+import { REMOVE_MEMBER_TYPE } from "./commands/remove-member";
+import { LEAVE_ORGANIZATION_TYPE } from "./commands/leave-organization";
+import { TRANSFER_OWNERSHIP_TYPE } from "./commands/transfer-ownership";
+import { createListMembersHandler } from "./handlers/list-members-handler";
+import { createChangeMemberRoleHandler } from "./handlers/change-member-role-handler";
+import { createRemoveMemberHandler } from "./handlers/remove-member-handler";
+import { createLeaveOrganizationHandler } from "./handlers/leave-organization-handler";
+import { createTransferOwnershipHandler } from "./handlers/transfer-ownership-handler";
 
 export function registerIdentityAuthHandlers(dispatcher: Dispatcher, deps: IdentityHandlerDeps): void {
   dispatcher.register(REGISTER_ACCOUNT_TYPE, { handle: createRegisterAccountHandler(deps) } as any);
@@ -70,4 +80,13 @@ export function registerIdentityInvitationHandlers(dispatcher: Dispatcher, deps:
   dispatcher.register(ACCEPT_INVITATION_TYPE, { handle: createAcceptInvitationHandler(deps) } as any);
   dispatcher.register(LIST_INVITATIONS_TYPE, { handle: createListInvitationsHandler(deps) } as any);
   dispatcher.register(PREVIEW_INVITATION_TYPE, { handle: createPreviewInvitationHandler(deps) } as any);
+  registerIdentityMembershipHandlers(dispatcher, deps);
+}
+
+export function registerIdentityMembershipHandlers(dispatcher: Dispatcher, deps: IdentityHandlerDeps): void {
+  dispatcher.register(LIST_MEMBERS_TYPE, { handle: createListMembersHandler(deps) } as any);
+  dispatcher.register(CHANGE_MEMBER_ROLE_TYPE, { handle: createChangeMemberRoleHandler(deps) } as any);
+  dispatcher.register(REMOVE_MEMBER_TYPE, { handle: createRemoveMemberHandler(deps) } as any);
+  dispatcher.register(LEAVE_ORGANIZATION_TYPE, { handle: createLeaveOrganizationHandler(deps) } as any);
+  dispatcher.register(TRANSFER_OWNERSHIP_TYPE, { handle: createTransferOwnershipHandler(deps) } as any);
 }

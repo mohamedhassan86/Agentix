@@ -585,6 +585,68 @@ registry.registerPath({
 });
 
 registry.registerPath({
+  method: "get",
+  path: "/api/v1/organization/members",
+  tags: ["Members"],
+  operationId: "listActiveOrganizationMembers",
+  responses: {
+    200: { description: "Members", content: { "application/json": { schema: z.object({ items: z.array(z.any()), roleCounts: z.object({ viewer: z.number(), member: z.number(), admin: z.number(), owner: z.number() }), nextCursor: z.string().nullable() }) } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/organization/members/{memberId}",
+  tags: ["Members"],
+  operationId: "changeMemberRole",
+  request: {
+    params: z.object({ memberId: z.string().uuid() }),
+    body: { content: { "application/json": { schema: z.object({ role: z.enum(["viewer", "member", "admin"]) }) } } },
+  },
+  responses: {
+    200: { description: "Updated" },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+    409: { description: "Owner invariant", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/organization/members/{memberId}",
+  tags: ["Members"],
+  operationId: "removeMember",
+  request: { params: z.object({ memberId: z.string().uuid() }) },
+  responses: {
+    204: { description: "Removed" },
+    409: { description: "Owner invariant", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/organization/membership",
+  tags: ["Members"],
+  operationId: "leaveActiveOrganization",
+  responses: {
+    204: { description: "Left" },
+    409: { description: "Owner invariant", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/api/v1/organization/ownership",
+  tags: ["Members"],
+  operationId: "transferOwnership",
+  request: { body: { content: { "application/json": { schema: z.object({ targetMemberId: z.string().uuid(), confirmation: z.literal("TRANSFER") }) } } } },
+  responses: {
+    200: { description: "Transferred" },
+    409: { description: "Owner invariant", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
   method: "post",
   path: "/api/v1/invitations/{invitationId}/accept",
   tags: ["Invitations"],
@@ -619,6 +681,7 @@ const doc = generator.generateDocument({
     { name: "Session", description: "Session context and organization switch." },
     { name: "Organizations", description: "Create, list, and manage the active organization." },
     { name: "Invitations", description: "Invite teammates and accept membership." },
+    { name: "Members", description: "Roles, leave, remove, and ownership transfer." },
   ],
 });
 

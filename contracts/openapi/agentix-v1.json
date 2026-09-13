@@ -38,6 +38,10 @@
     {
       "name": "Invitations",
       "description": "Invite teammates and accept membership."
+    },
+    {
+      "name": "Members",
+      "description": "Roles, leave, remove, and ownership transfer."
     }
   ],
   "components": {
@@ -1823,6 +1827,245 @@
           },
           "400": {
             "description": "Token problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organization/members": {
+      "get": {
+        "tags": [
+          "Members"
+        ],
+        "operationId": "listActiveOrganizationMembers",
+        "responses": {
+          "200": {
+            "description": "Members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "nullable": true
+                      }
+                    },
+                    "roleCounts": {
+                      "type": "object",
+                      "properties": {
+                        "viewer": {
+                          "type": "number"
+                        },
+                        "member": {
+                          "type": "number"
+                        },
+                        "admin": {
+                          "type": "number"
+                        },
+                        "owner": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "viewer",
+                        "member",
+                        "admin",
+                        "owner"
+                      ]
+                    },
+                    "nextCursor": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "roleCounts",
+                    "nextCursor"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organization/members/{memberId}": {
+      "patch": {
+        "tags": [
+          "Members"
+        ],
+        "operationId": "changeMemberRole",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "memberId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "viewer",
+                      "member",
+                      "admin"
+                    ]
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated"
+          },
+          "403": {
+            "description": "Permission denied",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Owner invariant",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Members"
+        ],
+        "operationId": "removeMember",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "memberId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "409": {
+            "description": "Owner invariant",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organization/membership": {
+      "delete": {
+        "tags": [
+          "Members"
+        ],
+        "operationId": "leaveActiveOrganization",
+        "responses": {
+          "204": {
+            "description": "Left"
+          },
+          "409": {
+            "description": "Owner invariant",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/organization/ownership": {
+      "put": {
+        "tags": [
+          "Members"
+        ],
+        "operationId": "transferOwnership",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "targetMemberId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "confirmation": {
+                    "type": "string",
+                    "enum": [
+                      "TRANSFER"
+                    ]
+                  }
+                },
+                "required": [
+                  "targetMemberId",
+                  "confirmation"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transferred"
+          },
+          "409": {
+            "description": "Owner invariant",
             "content": {
               "application/problem+json": {
                 "schema": {
