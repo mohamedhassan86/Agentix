@@ -20,7 +20,10 @@ export function createReadinessHandler(version: string, probe: IReadinessProbe) 
     const result = await probe.check();
     if (result.status !== "ready") {
       const dep = (result.dependency as "database" | "schema") ?? "database";
-      throw new UnavailableError(`Dependency ${dep} not ready`, dep);
+      // Probes report a stable snake_case category (e.g. connect_timeout); it is safe to
+      // expose and turns "dependency not ready" into an actionable line.
+      const category = result.message && /^[a-z][a-z0-9_]*$/.test(result.message) ? `: ${result.message}` : "";
+      throw new UnavailableError(`Dependency ${dep} not ready${category}`, dep);
     }
     return {
       status: "ready",

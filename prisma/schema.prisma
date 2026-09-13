@@ -1,7 +1,13 @@
+// Prisma 7 generator. `prisma-client` (NOT the legacy `prisma-client-js`) is required
+// because it writes <output>/client.ts, which is the module this app imports
+// (src/infrastructure/persistence/prisma.ts). The legacy provider emits index.js and
+// left the committed offline stub in place, so production silently no-opped every query.
+// Driver adapters are GA in v7, so the `driverAdapters` preview flag is gone.
 generator client {
-  provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
-  previewFeatures = ["driverAdapters"]
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  runtime      = "nodejs"
+  moduleFormat = "esm"
 }
 
 datasource db {

@@ -4,6 +4,12 @@ import { useEffect, useState, useCallback } from "react";
 
 type StatusState = "loading" | "ready" | "error" | "retrying";
 
+interface ProblemBody {
+  dependency?: string;
+  code?: string;
+  detail?: string;
+}
+
 interface HealthData {
   status: "alive" | "ready";
   service: string;
@@ -33,9 +39,11 @@ export function FoundationStatus({ initialVersion = "0.1.0" }: FoundationStatusP
       if (corr) setCorrelationId(corr);
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const dep = body.dependency ?? "unknown";
-        throw new Error(`Dependency ${dep} unavailable (${res.status})`);
+        const body = (await res.json().catch(() => ({}))) as ProblemBody;
+        const dep = (body.dependency as string | undefined) ?? "service";
+        const code = typeof body.code === "string" ? body.code : "UNAVAILABLE";
+        const detail = typeof body.detail === "string" ? ` - ${body.detail}` : "";
+        throw new Error(`Dependency ${dep} unavailable (${res.status}) [${code}]${detail}`);
       }
 
       const data = (await res.json()) as HealthData;

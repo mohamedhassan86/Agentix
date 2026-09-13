@@ -17,6 +17,27 @@ export function mapErrorToProblem(error: unknown, correlationId: string): Proble
     };
   }
 
+  // Infrastructure/platform failures carry their own problem+json shape. Matching
+  // structurally (instead of importing the classes) keeps the app layer free of
+  // persistence imports while still avoiding the "unknown dependency" 500.
+  const shaped = error as Error & {
+    status?: number;
+    code?: string;
+    dependency?: "database" | "schema";
+    detail?: string;
+  };
+  if (typeof shaped?.code === "string" && typeof shaped?.status === "number") {
+    return {
+      type: "about:blank",
+      title: shaped.status === 503 ? "Service unavailable" : "Internal server error",
+      status: shaped.status,
+      code: shaped.code,
+      correlationId,
+      detail: shaped.detail ?? shaped.message,
+      ...(shaped.dependency ? { dependency: shaped.dependency } : {}),
+    };
+  }
+
   // Check for CORS error
   if (error instanceof Error && error.message.includes("CORS")) {
     return {

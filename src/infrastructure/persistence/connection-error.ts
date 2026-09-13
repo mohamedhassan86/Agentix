@@ -59,7 +59,9 @@ const REMEDIATION: Record<ConnectionFailureCategory, string> = {
   tls_required:
     "The server requires TLS. Add ?sslmode=require to the connection string (this app already does so automatically for remote hosts) — plain connections are rejected by Vercel Postgres/Neon.",
   tls_handshake_failed:
-    "TLS handshake or certificate verification failed. Use sslmode=require (not verify-ca with a missing CA bundle); for a self-signed local proxy set DB_ALLOW_INSECURE_TLS=true outside production.",
+    "TLS handshake or certificate verification failed. pg maps sslmode=require to full verification: if the endpoint certificate " +
+      "does not match its hostname (common with poolers), set DB_SSL_NO_VERIFY=true outside production, or supply the CA with " +
+      "sslrootcert. Never disable verification in production.",
   too_many_connections:
     "The database reached its connection limit. Use the pooled endpoint, reduce DB_POOL_MAX, and keep DB_IDLE_TIMEOUT_MS low so frozen serverless functions release connections.",
   schema_not_migrated:

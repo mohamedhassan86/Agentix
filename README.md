@@ -215,12 +215,17 @@ npm run lint && npm test && npm run build && npm run license:check && npm run ar
    `src/infrastructure/config/database-url.ts` — and enforces `sslmode=require` for remote hosts.
 2. Add the non-secret app vars: `APP_ORIGIN=https://<your-production-domain>`,
    optionally `CORS_ORIGINS`.
-3. Let `postinstall` generate the client: `package.json` runs `prisma generate` on install,
-   because `src/generated/prisma/client.ts` is a committed **offline stub**. Without it the app
-   answers requests while writing nothing to Postgres (`$transaction` on the stub is not a
-   transaction either). In production the app refuses to boot while that stub is active
-   (`ALLOW_PRISMA_STUB=true` overrides - development/CI only). If the Vercel build cannot reach
-   `binaries.prisma.sh`, set `PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1` like CI does.
+3. Let `postinstall` generate the client: `prisma generate && node scripts/check-prisma-generated.mjs`.
+   `src/generated/prisma/client.ts` is a committed **offline stub** (`findUnique → null`,
+   `create → {}`, `$transaction(fn)` runs `fn` with no transaction), and the file is only real
+   after generation - that is why the schema now uses Prisma 7's `provider = "prisma-client"`
+   (it writes `<output>/client.ts`); the legacy `prisma-client-js` writes `index.js` instead and
+   left the stub in place, which is what made a deployed app look unable to connect.
+   If a stub ever ships, the app does not lie: `/health/live` and `/api/v1/ping` stay 200 while
+   any data route answers `503 PRISMA_CLIENT_NOT_GENERATED`. `ALLOW_PRISMA_STUB=true` silences it
+   for offline development only. If the build cannot reach `binaries.prisma.sh`, set
+   `PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1` like CI does. If `npm run worker` (tsx) reports
+   `Cannot find module './internal/class.js'`, add `importFileExtension = "ts"` to the generator block.
 4. Apply the schema **once** against the direct endpoint — never through the pooler, because
    `CREATE TYPE` cannot run inside a PgBouncer transaction:
    ```bash
@@ -228,10 +233,18 @@ npm run lint && npm test && npm run build && npm run license:check && npm run ar
    npm run db:doctor          # shows which URL/pooler/TLS/migration state you have
    npm run db:migrate         # uses POSTGRES_URL_NON_POOLING / DATABASE_URL_UNPOOLED
    ```
-5. `npm run build` locally before pushing; then check `https://<app>/health/ready`.
-   If it is 503, the `category` logged by the readiness probe (`dns_not_resolved`,
-   `connect_timeout`, `auth_failed`, `tls_handshake_failed`, `too_many_connections`,
-   `schema_not_migrated`, …) names the fix — no connection details are ever exposed.
+5. `npm run build` locally before pushing; then check `https://<app>/health/ready`. A 503 carries a
+   machine-readable `code` and, for dependency failures, a category the browser banner shows too:
+
+   | `code` | meaning | fix |
+   | --- | --- | --- |
+   | `CONFIG_MISSING` | no Postgres URL in this environment | enable the integration vars for Production *and* Preview |
+   | `PRISMA_CLIENT_NOT_GENERATED` | the offline stub shipped | make the build run `prisma generate` |
+   | `PRISMA_ADAPTER_MISSING` | `@prisma/adapter-pg` unloadable | reinstall deps (`npm ci`) |
+   | `UNAVAILABLE` + `Dependency database not ready: <category>` | the DB itself | `dns_not_resolved`, `connection_refused`, `connect_timeout`, `auth_failed`, `ip_not_allowed`, `tls_handshake_failed`, `too_many_connections`, `pool_acquired_timeout` → see the remediation list in `src/infrastructure/persistence/connection-error.ts` |
+   | `UNAVAILABLE` + `Dependency schema not ready` | reachable DB, missing tables | `npm run db:migrate` with the non-pooled URL |
+
+   No host, user or password ever leaves the process.
 6. Deployment-side limits to respect: routes must run on the Node runtime (no `runtime = "edge"`
    for DB routes), serverless instances must keep `DB_POOL_MAX` at 1–3 when the URL contains a
    `-pooler` host, and the outbox worker cannot live on Vercel — host `npm run worker` elsewhere

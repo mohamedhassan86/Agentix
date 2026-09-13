@@ -1,10 +1,36 @@
 import { configSchema, parseCorsOrigins } from "./schema";
 import { describeDatabaseUrls, resolveDatabaseUrls, type DatabaseRuntimeInfo } from "./database-url";
 
+/**
+ * A missing/invalid environment is an operational dependency problem, not a code bug:
+ * carrying status/code/dependency lets the route answer problem+json (and keeps
+ * /health/ready conformant to its own contract) instead of a bare 500 that the status
+ * banner can only report as "Dependency unknown unavailable".
+ */
+export type ConfigDependency = "database" | "schema";
+
+export interface ConfigErrorOptions {
+  /** Only set when the problem is a health dependency, so problem+json stays valid. */
+  dependency?: ConfigDependency;
+  code?: "CONFIG_MISSING" | "CONFIG_INVALID";
+  detail?: string;
+}
+
 export class ConfigError extends Error {
-  constructor(message: string) {
+  override readonly name = "ConfigError";
+  readonly status = 503;
+  readonly code: "CONFIG_MISSING" | "CONFIG_INVALID";
+  readonly dependency?: ConfigDependency;
+  readonly detail: string;
+
+  constructor(message: string, options: ConfigErrorOptions = {}) {
     super(message);
-    this.name = "ConfigError";
+    this.code = options.code ?? "CONFIG_INVALID";
+    this.dependency = options.dependency;
+    this.detail =
+      options.detail ??
+      "Required configuration is missing or invalid in this deployment environment. " +
+        "Check Project -> Settings -> Environment Variables for this environment (Production and Preview are separate).";
   }
 }
 
@@ -46,10 +72,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl = resolved.appUrl;
     database = describeDatabaseUrls(resolved);
   } catch (e) {
-    throw new ConfigError(
-      `DATABASE_URL is required (or a platform equivalent). Remediation: ${(e as Error).message} ` +
-        `Value must never be logged.`
-    );
+    throw new ConfigError(`DATABASE_URL is required (or a platform equivalent). Remediation: ${(e as Error).message}`, {
+      dependency: "database",
+      code: "CONFIG_MISSING",
+      detail:
+        "No PostgreSQL connection string is available to this deployment. The Vercel Postgres/Neon " +
+        "integration injects POSTGRES_URL and friends - make sure they are enabled for this environment.",
+    });
   }
 
   const nodeEnv = env.NODE_ENV ?? "development";

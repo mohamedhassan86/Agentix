@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
-    "postinstall": "prisma generate || { echo 'FATAL: prisma generate failed - the app must not ship the offline stub Prisma client. Check build log network access to binaries.prisma.sh, or set PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 (as CI does), then redeploy.'; exit 1; }",
+    "postinstall": "prisma generate && node scripts/check-prisma-generated.mjs || { echo 'FATAL: prisma generate failed - the app must not ship the offline stub Prisma client. Check that the build can reach binaries.prisma.sh (set PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 like CI does) and that generator provider is \"prisma-client\"; then redeploy.'; exit 1; }",
     "build": "next build",
     "start": "next start",
     "worker": "tsx --env-file=.env.local src/worker/main.ts",
@@ -25,7 +25,8 @@
     "db:migrate": "prisma migrate deploy",
     "db:status": "prisma migrate status",
     "db:doctor": "tsx scripts/check-db-connection.ts",
-    "config:check": "tsx scripts/check-config.ts"
+    "config:check": "tsx scripts/check-config.ts",
+    "prisma:check": "node scripts/check-prisma-generated.mjs"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.5.0",

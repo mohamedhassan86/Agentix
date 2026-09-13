@@ -74,6 +74,15 @@ describe("Vercel/Neon connection string resolution", () => {
     ).toContain("sslmode=disable");
   });
 
+  it("honours the non-production escape hatches only", () => {
+    const remote = "postgresql://u:p@db.example.com:6543/postgres?pgbouncer=true";
+    expect(ensureTls(remote, { DB_SSL_NO_VERIFY: "true" }).url).toContain("sslmode=no-verify");
+    expect(ensureTls(remote, { DB_ALLOW_INSECURE_TLS: "true" }).url).toBe(remote);
+    // In production neither hatch may weaken TLS.
+    expect(ensureTls(remote, { DB_SSL_NO_VERIFY: "true", NODE_ENV: "production" }).url).toContain("sslmode=require");
+    expect(ensureTls(remote, { DB_ALLOW_INSECURE_TLS: "true", NODE_ENV: "production" }).url).toContain("sslmode=require");
+  });
+
   it("keeps the database name and other params untouched when adding sslmode", () => {
     const out = ensureTls("postgresql://u:p@h.example.com:5432/mydb?connect_timeout=15").url;
     expect(out).toBe("postgresql://u:p@h.example.com:5432/mydb?connect_timeout=15&sslmode=require");

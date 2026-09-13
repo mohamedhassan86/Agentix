@@ -113,20 +113,33 @@ export interface TlsOutcome {
 
 /**
  * Ensure a remote endpoint uses TLS. `sslmode=disable|allow|prefer` is upgraded to
- * `require`; set `DB_ALLOW_INSECURE_TLS=true` to opt out (self-signed local proxies).
+ * `require`. Escape hatches, both refused in production:
+ *  - `DB_ALLOW_INSECURE_TLS=true`  no TLS at all (self-signed local proxy)
+ *  - `DB_SSL_NO_VERIFY=true`       TLS without certificate verification, for a pooler whose
+ *    certificate does not match its hostname (pg treats `require` as `verify-full`)
  */
 export function ensureTls(raw: string, env: Env = process.env): TlsOutcome {
   const url = parse(raw);
   if (!url) return { url: raw, forced: false };
 
+  const isProduction = env.NODE_ENV === "production";
+  const flag = (name: string) => env[name] === "true" || env[name] === "1";
+  const allowInsecure = !isProduction && flag("DB_ALLOW_INSECURE_TLS");
+  const skipVerify = !isProduction && flag("DB_SSL_NO_VERIFY");
+
   const host = url.hostname.toLowerCase();
   const isLocal = LOCAL_HOSTS.has(host) || host.endsWith(".local") || host.endsWith(".internal");
-  const allowInsecure = env.DB_ALLOW_INSECURE_TLS === "true" || env.DB_ALLOW_INSECURE_TLS === "1";
-  if (isLocal || allowInsecure) return { url: raw, forced: false };
+  if (isLocal && !skipVerify) return { url: raw, forced: false };
+  if (allowInsecure) return { url: raw, forced: false };
 
   const params = new URLSearchParams(url.search);
   const sslmode = (params.get("sslmode") ?? "").toLowerCase();
-  if (sslmode === "require" || sslmode === "verify-ca" || sslmode === "verify-full") {
+  if (skipVerify) {
+    if (sslmode === "no-verify") return { url: raw, forced: false };
+    params.set("sslmode", "no-verify");
+    return { url: withQueryString(raw, params), forced: true };
+  }
+  if (sslmode === "require" || sslmode === "verify-ca" || sslmode === "verify-full" || sslmode === "no-verify") {
     return { url: raw, forced: false };
   }
   if (params.get("ssl") === "false" && sslmode === "") {

@@ -160,6 +160,22 @@ async function main(): Promise<void> {
   const tls = await tlsProbe(host, port, 5000);
   record({ name: "tls", ok: tls.ok, detail: tls.detail, remediation: tls.ok ? undefined : "Hosted Postgres requires TLS; keep sslmode=require" });
 
+  try {
+    const { isPrismaClientStub } = await import("../src/infrastructure/persistence/prisma");
+    const stub = isPrismaClientStub();
+    record({
+      name: "prisma client",
+      ok: !stub,
+      detail: stub ? "src/generated/prisma/client.ts is still the offline stub" : "generated client present",
+      remediation: stub
+        ? "Run `npx prisma generate` (postinstall does it). If it leaves the stub in place, the schema uses the legacy " +
+          "prisma-client-js provider, which writes index.js instead of client.ts - use provider = \"prisma-client\"."
+        : undefined,
+    });
+  } catch (e) {
+    record({ name: "prisma client", ok: false, detail: `cannot load generated client: ${(e as Error).message}` });
+  }
+
   let pool: Pool | null = null;
   try {
     pool = new Pool({
