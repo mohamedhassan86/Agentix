@@ -236,19 +236,159 @@ registry.registerPath({
   },
 });
 
+const AccountSchema = registry.register("Account", z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  displayName: z.string(),
+  emailVerified: z.boolean(),
+  platformAdministrator: z.boolean(),
+  createdAt: z.string().datetime(),
+}));
+
+const RegisterRequestSchema = registry.register("RegisterRequest", z.object({
+  email: z.string().email().max(254),
+  displayName: z.string().min(1).max(120),
+  password: z.string().min(8).max(1024),
+}));
+
+const RegisterResultSchema = registry.register("RegisterResult", z.object({
+  account: AccountSchema,
+  verificationMessageQueued: z.literal(true),
+}));
+
+const SignInRequestSchema = registry.register("SignInRequest", z.object({
+  email: z.string().email().max(254),
+  password: z.string().min(1).max(1024),
+}));
+
+const SessionContextSchema = registry.register("SessionContext", z.object({
+  userId: z.string().uuid(),
+  activeOrganizationId: z.string().uuid().nullable(),
+  activeRole: z.enum(["viewer", "member", "admin", "owner"]).nullable(),
+  platformAdministrator: z.boolean(),
+}));
+
+const OneTimeTokenRequestSchema = registry.register("OneTimeTokenRequest", z.object({
+  token: z.string().min(40),
+}));
+
+const VerificationResultSchema = registry.register("VerificationResult", z.object({
+  status: z.enum(["verified", "already_verified"]),
+}));
+
+const MessageQueuedResultSchema = registry.register("MessageQueuedResult", z.object({
+  queued: z.literal(true),
+}));
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/auth/register",
+  tags: ["Authentication"],
+  operationId: "registerAccount",
+  request: { body: { content: { "application/json": { schema: RegisterRequestSchema } } } },
+  responses: {
+    201: { description: "Registered", content: { "application/json": { schema: RegisterResultSchema } } },
+    409: { description: "Registration failed", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/auth/sign-in",
+  tags: ["Authentication"],
+  operationId: "signIn",
+  request: { body: { content: { "application/json": { schema: SignInRequestSchema } } } },
+  responses: {
+    200: { description: "Signed in", content: { "application/json": { schema: SessionContextSchema } } },
+    401: { description: "Authentication failed", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/auth/sign-out",
+  tags: ["Authentication"],
+  operationId: "signOut",
+  responses: {
+    204: { description: "Signed out" },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/auth/verify-email",
+  tags: ["Authentication"],
+  operationId: "verifyEmail",
+  request: { body: { content: { "application/json": { schema: OneTimeTokenRequestSchema } } } },
+  responses: {
+    200: { description: "Verified", content: { "application/json": { schema: VerificationResultSchema } } },
+    400: { description: "Token problem", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/auth/verification-messages",
+  tags: ["Authentication"],
+  operationId: "resendVerification",
+  responses: {
+    202: { description: "Queued", content: { "application/json": { schema: MessageQueuedResultSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    409: { description: "Conflict", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/account",
+  tags: ["Account"],
+  operationId: "getCurrentAccount",
+  responses: {
+    200: { description: "Account", content: { "application/json": { schema: AccountSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/account",
+  tags: ["Account"],
+  operationId: "deleteCurrentAccount",
+  responses: {
+    204: { description: "Deleted" },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    409: { description: "Owner invariant", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/session",
+  tags: ["Session"],
+  operationId: "getSessionContext",
+  responses: {
+    200: { description: "Session", content: { "application/json": { schema: SessionContextSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
 const generator = new OpenApiGeneratorV3(registry.definitions);
 
 const doc = generator.generateDocument({
   openapi: "3.1.0",
   info: {
-    title: "Agentix Foundation API",
-    version: "0.1.0",
-    description: "Foundation-only contract for health, versioned ping, and non-business demonstration work.",
+    title: "Agentix API",
+    version: "0.2.0",
+    description: "Foundation plus tenancy and identity contracts.",
   },
   servers: [{ url: "/" }],
   tags: [
     { name: "Health", description: "Process liveness and dependency readiness." },
     { name: "Foundation", description: "Versioned ping and non-business foundation validation operations." },
+    { name: "Authentication", description: "Register, sign-in, verification." },
+    { name: "Account", description: "Current account." },
+    { name: "Session", description: "Session context and organization switch." },
   ],
 });
 

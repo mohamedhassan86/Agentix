@@ -13,6 +13,13 @@ import { CREATE_FOUNDATION_WORK_TYPE } from "@/application/foundation/commands/w
 import { GET_FOUNDATION_WORK_TYPE } from "@/application/foundation/queries/work";
 import { createFoundationWorkHandler, getFoundationWorkHandler } from "@/application/foundation/handlers/work";
 import { FoundationDemoRepository } from "@/infrastructure/persistence/foundation-demo-repository";
+import { PrismaIdentityStore } from "@/infrastructure/identity/persistence/prisma-identity-store";
+import { Argon2Hasher } from "@/infrastructure/identity/auth/argon2-hasher";
+import { TokenService } from "@/infrastructure/identity/auth/token-service";
+import { AesGcmEncryption } from "@/infrastructure/identity/messaging/aes-gcm-encryption";
+import { SessionService } from "@/infrastructure/identity/auth/session-service";
+import { registerIdentityAuthHandlers } from "@/application/identity/register-handlers";
+import type { IdentityHandlerDeps, IdentityStore } from "@/application/identity/ports/identity-store";
 
 export interface AppComposition {
   dispatcher: Dispatcher;
@@ -22,6 +29,9 @@ export interface AppComposition {
   logger: ReturnType<typeof createLogger>;
   config: ReturnType<typeof loadConfig>;
   readinessProbe: MigrationReadinessProbe;
+  sessionService: SessionService;
+  identityStore: IdentityStore;
+  identityDeps: IdentityHandlerDeps;
 }
 
 let composition: AppComposition | null = null;
@@ -52,6 +62,24 @@ export function createAppComposition(): AppComposition {
   dispatcher.register(CREATE_FOUNDATION_WORK_TYPE, { handle: createFoundationWorkHandler(workDeps) } as any);
   dispatcher.register(GET_FOUNDATION_WORK_TYPE, { handle: getFoundationWorkHandler(workDeps) } as any);
 
+  const identityStore = new PrismaIdentityStore(prisma);
+  const hasher = new Argon2Hasher();
+  const tokens = new TokenService();
+  const encryption = new AesGcmEncryption();
+  const identityDeps: IdentityHandlerDeps = {
+    store: identityStore,
+    hasher,
+    tokens,
+    encryption,
+    clock,
+    ids: idGenerator,
+    origin: config.app.origin ?? "http://localhost:3000",
+    sessionMaxAgeSeconds: config.auth.sessionMaxAge,
+    deliveryKeyVersion: config.messaging.deliveryKeyVersion,
+  };
+  registerIdentityAuthHandlers(dispatcher, identityDeps);
+  const sessionService = new SessionService(identityStore, tokens, clock, config.auth.sessionMaxAge);
+
   return {
     dispatcher,
     clock,
@@ -60,6 +88,9 @@ export function createAppComposition(): AppComposition {
     logger,
     config,
     readinessProbe,
+    sessionService,
+    identityStore,
+    identityDeps,
   };
 }
 
@@ -68,6 +99,10 @@ export function getAppComposition(): AppComposition {
     composition = createAppComposition();
   }
   return composition;
+}
+
+export function setAppCompositionForTests(next: AppComposition): void {
+  composition = next;
 }
 
 export function clearAppComposition(): void {

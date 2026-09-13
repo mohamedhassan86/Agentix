@@ -1,5 +1,16 @@
 import { normalizeCorrelationId } from "./correlation";
 
+export interface IdentityActor {
+  userId: string;
+  sessionId: string;
+  sessionTokenDigest: Uint8Array;
+  activeOrgId: string | null;
+  activeRole: "viewer" | "member" | "admin" | "owner" | null;
+  isPlatformAdmin: boolean;
+  emailNormalized: string;
+  displayName: string;
+}
+
 export interface RequestContextOptions {
   correlationId?: string;
   signal?: AbortSignal;
@@ -8,6 +19,7 @@ export interface RequestContextOptions {
   runId?: string | null;
   operation?: string;
   workId?: string;
+  actor?: IdentityActor | null;
 }
 
 export interface RequestContext {
@@ -18,6 +30,7 @@ export interface RequestContext {
   runId: string | null;
   operation?: string;
   workId?: string;
+  actor: IdentityActor | null;
   readonly isAborted: boolean;
 }
 
@@ -28,11 +41,12 @@ export function createRequestContext(options: RequestContextOptions = {}): Reque
   return {
     correlationId,
     signal,
-    orgId: options.orgId ?? null,
+    orgId: options.orgId ?? options.actor?.activeOrgId ?? null,
     projectId: options.projectId ?? null,
     runId: options.runId ?? null,
     operation: options.operation,
     workId: options.workId,
+    actor: options.actor ?? null,
     get isAborted() {
       return signal.aborted;
     },
