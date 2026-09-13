@@ -15,4 +15,12 @@ test.describe("identity golden path", () => {
     await page.goto("/verify-email");
     await expect(page.getByRole("heading", { name: /email verification/i })).toBeVisible();
   });
+
+  test("US2 create org empty state is keyboard operable", async ({ page }) => {
+    await page.goto("/organizations");
+    await expect(page.getByRole("heading", { name: /no organizations|organizations|choose organization/i })).toBeVisible();
+    const create = page.getByRole("button", { name: /create organization/i });
+    await create.focus();
+    await expect(create).toBeFocused();
+  });
 });

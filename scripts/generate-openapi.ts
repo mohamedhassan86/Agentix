@@ -280,6 +280,37 @@ const MessageQueuedResultSchema = registry.register("MessageQueuedResult", z.obj
   queued: z.literal(true),
 }));
 
+const OrganizationProfileSchema = registry.register("OrganizationProfile", z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string().min(3).max(48),
+  currentRole: z.enum(["viewer", "member", "admin", "owner"]).nullable(),
+  createdAt: z.string().datetime(),
+}));
+
+const OrganizationPageSchema = registry.register("OrganizationPage", z.object({
+  items: z.array(OrganizationProfileSchema),
+  nextCursor: z.string().nullable(),
+}));
+
+const CreateOrganizationRequestSchema = registry.register("CreateOrganizationRequest", z.object({
+  name: z.string().min(1).max(120),
+  slug: z.string().min(3).max(48).optional(),
+}));
+
+const UpdateOrganizationRequestSchema = registry.register("UpdateOrganizationRequest", z.object({
+  name: z.string().min(1).max(120).optional(),
+  slug: z.string().min(3).max(48).optional(),
+}));
+
+const DeleteOrganizationRequestSchema = registry.register("DeleteOrganizationRequest", z.object({
+  confirmationSlug: z.string().min(3).max(48),
+}));
+
+const SlugSuggestionSchema = registry.register("SlugSuggestion", z.object({
+  slug: z.string().min(3).max(48),
+}));
+
 registry.registerPath({
   method: "post",
   path: "/api/v1/auth/register",
@@ -373,6 +404,81 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/organizations",
+  tags: ["Organizations"],
+  operationId: "listMyOrganizations",
+  responses: {
+    200: { description: "Memberships", content: { "application/json": { schema: OrganizationPageSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/organizations",
+  tags: ["Organizations"],
+  operationId: "createOrganization",
+  request: { body: { content: { "application/json": { schema: CreateOrganizationRequestSchema } } } },
+  responses: {
+    201: { description: "Created", content: { "application/json": { schema: OrganizationProfileSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+    409: { description: "Slug conflict", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/organizations/slug-suggestion",
+  tags: ["Organizations"],
+  operationId: "suggestOrganizationSlug",
+  responses: {
+    200: { description: "Suggestion", content: { "application/json": { schema: SlugSuggestionSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/organization",
+  tags: ["Organizations"],
+  operationId: "getActiveOrganization",
+  responses: {
+    200: { description: "Active organization", content: { "application/json": { schema: OrganizationProfileSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    403: { description: "No active organization", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/v1/organization",
+  tags: ["Organizations"],
+  operationId: "updateActiveOrganization",
+  request: { body: { content: { "application/json": { schema: UpdateOrganizationRequestSchema } } } },
+  responses: {
+    200: { description: "Updated", content: { "application/json": { schema: OrganizationProfileSchema } } },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+    409: { description: "Slug conflict", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/v1/organization",
+  tags: ["Organizations"],
+  operationId: "deleteActiveOrganization",
+  request: { body: { content: { "application/json": { schema: DeleteOrganizationRequestSchema } } } },
+  responses: {
+    204: { description: "Deleted" },
+    401: { description: "Authentication required", content: { "application/problem+json": { schema: ProblemSchema } } },
+    403: { description: "Permission denied", content: { "application/problem+json": { schema: ProblemSchema } } },
+  },
+});
+
 const generator = new OpenApiGeneratorV3(registry.definitions);
 
 const doc = generator.generateDocument({
@@ -389,6 +495,7 @@ const doc = generator.generateDocument({
     { name: "Authentication", description: "Register, sign-in, verification." },
     { name: "Account", description: "Current account." },
     { name: "Session", description: "Session context and organization switch." },
+    { name: "Organizations", description: "Create, list, and manage the active organization." },
   ],
 });
 

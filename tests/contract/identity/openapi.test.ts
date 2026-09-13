@@ -11,6 +11,12 @@ const REQUIRED_OPS = [
   "getCurrentAccount",
   "deleteCurrentAccount",
   "getSessionContext",
+  "listMyOrganizations",
+  "createOrganization",
+  "suggestOrganizationSlug",
+  "getActiveOrganization",
+  "updateActiveOrganization",
+  "deleteActiveOrganization",
 ];
 
 describe("identity OpenAPI contract", () => {

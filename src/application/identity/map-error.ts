@@ -70,6 +70,14 @@ export function fromDomainMessage(message: string): AppError | null {
       return new ForbiddenError();
     case "SLUG_CONFLICT":
       return new ConflictError("Organization slug is already taken", ErrorCodes.SLUG_CONFLICT);
+    case "SLUG_INVALID":
+    case "SLUG_TOO_SHORT":
+    case "SLUG_TOO_LONG":
+    case "SLUG_INVALID_FORMAT":
+    case "NAME_REQUIRED_FOR_SLUG":
+    case "ORGANIZATION_NAME_REQUIRED":
+    case "ORGANIZATION_NAME_TOO_LONG":
+      return new ValidationError("Validation failed");
     case "PLATFORM_ADMIN_REQUIRES_ZERO_MEMBERSHIPS":
       return new ConflictError("Platform administrator must have zero memberships", ErrorCodes.OWNER_INVARIANT);
     default:
