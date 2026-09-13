@@ -45,4 +45,13 @@ export async function inviteAndAccept(params: {
   return { cookie, invitationId: invitation.id };
 }
 
-export { switchOrg };
+export async function switchOrg(cookie: string, organizationId: string): Promise<Response> {
+  const { PUT } = await import("@/app/api/v1/session/active-organization/route");
+  return PUT(
+    new Request("http://localhost/api/v1/session/active-organization", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ organizationId }),
+    }),
+  );
+}

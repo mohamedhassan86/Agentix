@@ -5,6 +5,7 @@ import type { InspectInvitationsQuery } from "../queries/inspect-invitations";
 import type { InvitationPage } from "../dto/invitation";
 import type { IdentityHandlerDeps } from "../ports/identity-store";
 import { identityAppError, requireActor, rethrowIdentity } from "../map-error";
+import { clampPageLimit } from "../queries/page-limit";
 import { toInvitationDto } from "./invitation-map";
 
 export function createInspectInvitationsHandler(deps: IdentityHandlerDeps) {
@@ -17,7 +18,7 @@ export function createInspectInvitationsHandler(deps: IdentityHandlerDeps) {
       const org = await deps.store.findOrgById(query.organizationId);
       if (!org) throw identityAppError(new OrganizationNotFoundError());
       const now = deps.clock.now();
-      const limit = Math.min(Math.max(query.limit ?? 25, 1), 100);
+      const limit = clampPageLimit(query.limit);
       const result = await deps.store.listInvitationsByOrg(org.id, { cursor: query.cursor, limit });
       return { items: result.items.map((i) => toInvitationDto(i, now)), nextCursor: result.nextCursor };
     } catch (error) {

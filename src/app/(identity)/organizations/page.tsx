@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { EmptyState } from "@/app/components/identity/empty-state";
 import { OrganizationSwitcher } from "@/app/components/identity/organization-switcher";
 import { CreateOrganizationDialog } from "@/app/components/identity/create-organization-dialog";
+import { LoadingState } from "@/app/components/identity/loading";
+import { ErrorState } from "@/app/components/identity/error";
+import { ChooseOrganization } from "@/app/components/identity/choose-organization";
 
 interface OrgItem {
   id: string;
@@ -13,32 +16,47 @@ interface OrgItem {
 }
 
 export default function OrganizationsPage() {
-  const [items, setItems] = useState<OrgItem[]>([]);
+  const [items, setItems] = useState<OrgItem[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggested, setSuggested] = useState<string | undefined>();
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
-      const [orgs, session] = await Promise.all([
-        fetch("/api/v1/organizations").then((r) => (r.ok ? r.json() : { items: [] })),
-        fetch("/api/v1/session").then((r) => (r.ok ? r.json() : { activeOrganizationId: null })),
-      ]);
-      setItems(orgs.items ?? []);
-      setActiveId(session.activeOrganizationId ?? null);
+      try {
+        const [orgsRes, sessionRes] = await Promise.all([fetch("/api/v1/organizations"), fetch("/api/v1/session")]);
+        const orgs = orgsRes.ok ? await orgsRes.json() : { items: [] };
+        const session = sessionRes.ok ? await sessionRes.json() : { activeOrganizationId: null };
+        setItems(orgs.items ?? []);
+        setActiveId(session.activeOrganizationId ?? null);
+      } catch {
+        setLoadError("Could not load organizations");
+        setItems([]);
+      }
     })();
   }, []);
 
   return (
     <>
-      {items.length === 0 ? (
+      {items === null ? (
+        <LoadingState label="Loading organizations…" />
+      ) : loadError ? (
+        <ErrorState title={loadError} />
+      ) : items.length === 0 ? (
         <EmptyState
           title="No organizations"
           description="Create your first organization to become Owner, or accept an invitation."
           actionLabel="Create organization"
           onAction={() => setOpen(true)}
+        />
+      ) : !activeId ? (
+        <ChooseOrganization
+          organizations={items}
+          onSelect={(id) => setActiveId(id)}
+          onCreate={() => setOpen(true)}
         />
       ) : (
         <OrganizationSwitcher
@@ -77,7 +95,7 @@ export default function OrganizationsPage() {
               return;
             }
             const created = await res.json();
-            setItems((prev) => [...prev, created]);
+            setItems((prev) => [...(prev ?? []), created]);
             setActiveId(created.id);
             setOpen(false);
           } finally {

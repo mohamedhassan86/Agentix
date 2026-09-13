@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { handleDialogKeyDown } from "./dialog-chrome";
 
 export interface CreateOrganizationDialogProps {
   open: boolean;
@@ -31,7 +32,11 @@ export function CreateOrganizationDialog({
 
   useEffect(() => {
     if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
     firstField.current?.focus();
+    return () => {
+      previous?.focus();
+    };
   }, [open]);
 
   useEffect(() => {
@@ -40,11 +45,8 @@ export function CreateOrganizationDialog({
 
   if (!open) return null;
 
-  function handleKey(event: KeyboardEvent) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-    }
+  function handleKey(event: KeyboardEvent<HTMLElement>) {
+    handleDialogKeyDown(event, onClose);
   }
 
   async function handleSubmit(event: FormEvent) {

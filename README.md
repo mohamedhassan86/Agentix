@@ -16,7 +16,51 @@ This is **Feature 001** - the prerequisite for all later features (tenancy, secr
 - **Design**: Canonical tokens from `Public/Desgin/index.html` - --bg, --surface, --border, --text, --primary, --radius, etc., variable-based components .card .btn .status-chip .banner .field, visible focus, 4.5:1 body 3:1 icon contrast, reduced-motion, responsive, no external font requests
 - **Gates**: One standard sequence `npm run lint && npm test && npm run build && npm run license:check && npm run architecture:check && npm run openapi:check && npm run test:policy` - same locally and in CI
 
-**Out of scope**: No auth, organizations, projects, secrets vault, provider SDKs, runs, metering, billing, webhooks, simulator, approval.
+**Out of scope for 001**: No auth, organizations, projects, secrets vault, provider SDKs, runs, metering, billing, webhooks, simulator, approval.
+
+## Tenancy & identity (002)
+
+Feature 002 adds email/password accounts, organizations, invitations, roles, organization switching, and read-only platform inspection on top of the foundation. Browser calls stay same-origin (`/api/v1/...`). Sign-in never restores a previous organization; you must choose one explicitly.
+
+Identity quickstart (register → verify → create → invite → switch → transfer → delete):
+
+```bash
+# Register (unverified; verification token is not in the API body)
+curl -sS -X POST http://localhost:3000/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"owner-a@example.test","displayName":"Owner A","password":"a-valid-passphrase"}'
+
+# Sign in — session starts with activeOrganizationId=null
+curl -sS -c cookies -X POST http://localhost:3000/api/v1/auth/sign-in \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"owner-a@example.test","password":"a-valid-passphrase"}'
+
+# Create organization (becomes Owner and active)
+curl -sS -b cookies -X POST http://localhost:3000/api/v1/organizations \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Alpha Org","slug":"alpha-org"}'
+
+# Invite a teammate as Admin (never Owner)
+curl -sS -b cookies -X POST http://localhost:3000/api/v1/organization/invitations \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.test","role":"admin"}'
+
+# Switch active organization (explicit only)
+curl -sS -b cookies -X PUT http://localhost:3000/api/v1/session/active-organization \
+  -H 'Content-Type: application/json' \
+  -d '{"organizationId":"<org-id>"}'
+
+# Transfer ownership, then logically delete with slug confirmation
+curl -sS -b cookies -X PUT http://localhost:3000/api/v1/organization/ownership \
+  -H 'Content-Type: application/json' \
+  -d '{"targetMemberId":"<member-id>","confirmation":"TRANSFER"}'
+curl -sS -b cookies -X DELETE http://localhost:3000/api/v1/organization \
+  -H 'Content-Type: application/json' \
+  -d '{"confirmationSlug":"alpha-org"}'
+```
+
+Reviewer commands: `specs/002-tenancy-identity/quickstart.md`. Server-only secrets (`AUTH_SECRET`, `MESSAGE_DELIVERY_KEY`) are documented in `.env.example` — never commit real values.
+
 
 ## Prerequisites
 

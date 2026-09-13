@@ -50,6 +50,22 @@ describe("identity OpenAPI contract", () => {
     const json = JSON.stringify(doc);
     expect(json).not.toContain("passwordHash");
     expect(json).not.toContain("tokenDigest");
+    expect(json).not.toContain("sessionToken");
     expect(json).not.toContain("supersecret");
+
+    const problemCode = /^[A-Z][A-Z0-9_]{1,119}$/;
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const rec = node as Record<string, unknown>;
+      if (typeof rec.code === "string" && rec.code === rec.code.toUpperCase() && rec.code.includes("_")) {
+        expect(rec.code).toMatch(problemCode);
+      }
+      for (const value of Object.values(rec)) walk(value);
+    };
+    walk(doc);
   });
 });

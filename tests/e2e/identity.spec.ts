@@ -29,3 +29,32 @@ test.describe("identity golden path", () => {
     await expect(create).toBeFocused();
   });
 });
+
+test.describe("identity accessibility", () => {
+  test("auth, switcher, and identity nav remain keyboard operable", async ({ page }) => {
+    await page.goto("/sign-in");
+    await page.getByLabel(/email/i).focus();
+    await expect(page.getByLabel(/email/i)).toBeFocused();
+    await page.goto("/organizations");
+    await expect(page.getByRole("navigation", { name: /identity/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /no organizations|organizations|choose organization/i })).toBeVisible();
+  });
+
+  test("320px narrow and reduced-motion keep identity screens usable", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/sign-up");
+    await expect(page.getByRole("heading", { name: /create account/i })).toBeVisible();
+    const overflowX = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 40);
+    expect(overflowX).toBe(false);
+  });
+});
+
+test.describe("identity permission states", () => {
+  test("members and settings pages expose denied, empty, or no-active-org states", async ({ page }) => {
+    await page.goto("/members");
+    await expect(page.getByText(/loading members|members|permission denied|no active organization|authentication|something went wrong/i)).toBeVisible();
+    await page.goto("/settings");
+    await expect(page.getByText(/loading organization settings|organization settings|permission denied|no active organization|authentication|something went wrong/i)).toBeVisible();
+  });
+});

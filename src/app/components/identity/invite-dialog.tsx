@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { handleDialogKeyDown } from "./dialog-chrome";
 
 export interface InviteDialogProps {
   open: boolean;
@@ -19,16 +20,18 @@ export function InviteDialog({ open, pending = false, error = null, onClose, onS
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) firstField.current?.focus();
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    firstField.current?.focus();
+    return () => {
+      previous?.focus();
+    };
   }, [open]);
 
   if (!open) return null;
 
-  function handleKey(event: KeyboardEvent) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onClose();
-    }
+  function handleKey(event: KeyboardEvent<HTMLElement>) {
+    handleDialogKeyDown(event, onClose);
   }
 
   async function handleSubmit(event: FormEvent) {

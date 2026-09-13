@@ -6,6 +6,7 @@ import type { InvitationPage } from "../dto/invitation";
 import type { IdentityHandlerDeps } from "../ports/identity-store";
 import { identityAppError, rethrowIdentity } from "../map-error";
 import { requireActiveOrg } from "../policies/active-org";
+import { clampPageLimit } from "../queries/page-limit";
 import { toInvitationDto } from "./invitation-map";
 
 export function createListInvitationsHandler(deps: IdentityHandlerDeps) {
@@ -16,7 +17,7 @@ export function createListInvitationsHandler(deps: IdentityHandlerDeps) {
         throw identityAppError(new PermissionDeniedError());
       }
       const now = deps.clock.now();
-      const limit = Math.min(Math.max(query.limit ?? 25, 1), 100);
+      const limit = clampPageLimit(query.limit);
       const result = await deps.store.listInvitationsByOrg(actor.activeOrgId, { cursor: query.cursor, limit });
       for (const invitation of result.items) {
         if (invitation.markExpiredIfNeeded(now)) {

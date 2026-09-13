@@ -19,7 +19,11 @@ export interface InvitationListProps {
 
 export function InvitationList({ items, canManage, onResend, onRevoke, disabled = false }: InvitationListProps) {
   if (items.length === 0) {
-    return <p style={{ color: "var(--muted)" }}>No invitations yet.</p>;
+    return (
+      <p style={{ color: "var(--muted)" }} role="status">
+        No invitations yet.
+      </p>
+    );
   }
   return (
     <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>

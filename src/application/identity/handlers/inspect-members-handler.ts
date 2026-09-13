@@ -5,6 +5,7 @@ import type { InspectMembersQuery } from "../queries/inspect-members";
 import type { MemberPage } from "../dto/member";
 import type { IdentityHandlerDeps } from "../ports/identity-store";
 import { identityAppError, requireActor, rethrowIdentity } from "../map-error";
+import { clampPageLimit } from "../queries/page-limit";
 import { toMemberDto } from "./member-map";
 
 export function createInspectMembersHandler(deps: IdentityHandlerDeps) {
@@ -16,10 +17,14 @@ export function createInspectMembersHandler(deps: IdentityHandlerDeps) {
       }
       const org = await deps.store.findOrgById(query.organizationId);
       if (!org) throw identityAppError(new OrganizationNotFoundError());
-      const limit = Math.min(Math.max(query.limit ?? 25, 1), 100);
+      const limit = clampPageLimit(query.limit);
       const result = await deps.store.listActiveMembershipsByOrg(org.id, { cursor: query.cursor, limit });
       const roleCounts = await deps.store.countRolesByOrg(org.id);
-      return { items: result.items.map(toMemberDto), roleCounts, nextCursor: result.nextCursor };
+      return {
+        items: result.items.map(toMemberDto),
+        roleCounts: roleCounts as MemberPage["roleCounts"],
+        nextCursor: result.nextCursor,
+      };
     } catch (error) {
       rethrowIdentity(error);
     }
