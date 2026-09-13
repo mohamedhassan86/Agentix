@@ -45,6 +45,8 @@ describe("fail-fast immutable config", () => {
   it("requires APP_ORIGIN in production", () => {
     process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
     (process.env as Record<string, string>).NODE_ENV = "production";
+    process.env.AUTH_SECRET = "test-auth-secret-32-chars-minimum-length!!";
+    process.env.MESSAGE_DELIVERY_KEY = "test-message-delivery-key-32-chars-min!!";
     delete process.env.APP_ORIGIN;
     expect(() => loadConfig()).toThrow(/APP_ORIGIN/);
     process.env.APP_ORIGIN = "https://example.com";
@@ -82,6 +84,8 @@ describe("fail-fast immutable config", () => {
     process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
     (process.env as Record<string, string>).NODE_ENV = "production";
     process.env.APP_ORIGIN = "https://example.com";
+    process.env.AUTH_SECRET = "test-auth-secret-32-chars-minimum-length!!";
+    process.env.MESSAGE_DELIVERY_KEY = "test-message-delivery-key-32-chars-min!!";
     delete process.env.FOUNDATION_DEMO_ENABLED;
     const cfg = loadConfig();
     expect(cfg.foundation.demoEnabled).toBe(false);

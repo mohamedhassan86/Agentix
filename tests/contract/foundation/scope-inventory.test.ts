@@ -58,13 +58,12 @@ describe("scope inventory - no out-of-scope surface", () => {
     }
   });
 
-  it("prisma schema has zero customer business tables", () => {
+  it("prisma schema has zero customer business tables beyond allowed identity", () => {
     const schema = readFileSync("prisma/schema.prisma", "utf-8").toLowerCase();
 
+    // 002-tenancy-identity explicitly allows identity models
+    // Forbidden are still project, secret, run, billing, provider, metering, webhook etc beyond identity
     const forbiddenModels = [
-      "model organization",
-      "model account",
-      "model membership",
       "model project",
       "model secret",
       "model run",
@@ -78,10 +77,14 @@ describe("scope inventory - no out-of-scope surface", () => {
       expect(schema.includes(forbidden), `Schema should not contain ${forbidden}`).toBe(false);
     }
 
+    // Foundation models must still exist
     expect(schema).toMatch(/model outboxmessage/i);
     expect(schema).toMatch(/model outboxattempt/i);
     expect(schema).toMatch(/model foundationdemorequest/i);
     expect(schema).toMatch(/model foundationdemoeffect/i);
+
+    // Identity models are allowed per 002 spec - verify they exist if post-002
+    // (No assertion that they must NOT exist - they are allowed)
   });
 
   it("no paid/external calls in codebase", async () => {
