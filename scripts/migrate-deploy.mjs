@@ -17,6 +17,10 @@
  * Environment:
  * - SKIP_DB_MIGRATE=true        skip entirely (e.g. a preview build with no database)
  * - DB_MIGRATE_OPTIONAL=true    never fail the build; warn instead
+ * - DB_MIGRATE_ON_PREVIEW=true  also migrate from Vercel preview/development builds
+ *                               (off by default: preview builds share the production
+ *                               database URL, so applying migrations there is unsafe and
+ *                               never fails the build)
  * - MIGRATE_TIMEOUT_MS=120000   hard timeout for the migration run
  *
  * The accepted variable names mirror src/infrastructure/config/database-url.ts
@@ -39,6 +43,16 @@ const skip = isTruthy(process.env.SKIP_DB_MIGRATE);
 const optional = isTruthy(process.env.DB_MIGRATE_OPTIONAL);
 const isVercel = Boolean(process.env.VERCEL);
 const vercelEnv = process.env.VERCEL_ENV ?? ""; // production | preview | development
+const applyOnPreview = isTruthy(process.env.DB_MIGRATE_ON_PREVIEW);
+
+/**
+ * Vercel preview/development builds must never apply migrations: they usually share the
+ * production connection string, and a preview build that fails leaves a red check on every
+ * PR. Preview therefore skips by default and, when explicitly opted in, still cannot fail
+ * the build.
+ */
+const previewBuild = isVercel && vercelEnv !== "production";
+const softFail = previewBuild && applyOnPreview;
 
 function log(message) {
   console.log(`[migrate] ${message}`);
@@ -49,6 +63,11 @@ function warn(message) {
 }
 
 function fail(message, remediation) {
+  if (softFail) {
+    warn(`${message}${remediation ? ` FIX: ${remediation}` : ""}`);
+    warn("DB_MIGRATE_ON_PREVIEW=true - this preview build continues without migrations.");
+    process.exit(0);
+  }
   console.error(`[migrate] ERROR: ${message}`);
   if (remediation) console.error(`[migrate] FIX: ${remediation}`);
   if (optional) {
@@ -167,10 +186,21 @@ async function main() {
     return;
   }
 
+  if (previewBuild && !applyOnPreview) {
+    const resolved = resolveMigrationUrl(process.env);
+    const target = resolved ? describeTarget(resolved.url) : null;
+    log(
+      `VERCEL_ENV=${vercelEnv || "preview"}: migrations are applied from production builds only` +
+        (target ? ` (would target ${target.host}:${target.port}/${target.database} via ${resolved.source})` : "")
+    );
+    log("Set DB_MIGRATE_ON_PREVIEW=true to apply migrations from preview builds.");
+    return;
+  }
+
   const resolved = resolveMigrationUrl(process.env);
   if (!resolved) {
     const message = `no connection string found (looked for: ${MIGRATION_DATABASE_URL_KEYS.join(", ")}).`;
-    if (isVercel && vercelEnv !== "preview") {
+    if (isVercel && vercelEnv !== "preview" && vercelEnv !== "development") {
       fail(
         `${message} A production deployment without a database cannot become ready.`,
         "Add DATABASE_URL and DIRECT_URL to the Vercel project environment variables (Production scope) and redeploy, or set SKIP_DB_MIGRATE=true to deploy without migrations."
@@ -192,6 +222,12 @@ async function main() {
   log(`source=${resolved.source} target=${target.host}:${target.port}/${target.database}`);
 
   if (target.transactionPooler) {
+    if (softFail) {
+      warn(
+        `${resolved.source} points at port 6543 (transaction pooler), which cannot run migrations - skipping. Set DIRECT_URL (or POSTGRES_URL_NON_POOLING) to the session/direct connection on port 5432.`
+      );
+      return;
+    }
     fail(
       `${resolved.source} points at port 6543 (transaction pooler), which cannot run migrations.`,
       "Set DIRECT_URL (or POSTGRES_URL_NON_POOLING) to the session/direct connection on port 5432. Keep the pooled URL on port 6543 as DATABASE_URL for runtime."

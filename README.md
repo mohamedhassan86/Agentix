@@ -207,7 +207,9 @@ npm run lint && npm test && npm run build && npm run license:check && npm run ar
 - Migrations: `npm run db:migrate:deploy` resolves the direct/session connection (`DIRECT_URL`,
   `POSTGRES_URL_NON_POOLING`, …), refuses a transaction pooler on port 6543, and never prints a credential
 - Host build: `npm run build:vercel` = generate Prisma client → apply pending migrations → `next build`
-  (wired in `vercel.json`); `SKIP_DB_MIGRATE=true` and `DB_MIGRATE_OPTIONAL=true` are the escape hatches
+  (wired in `vercel.json`); migrations run from Production builds only (preview builds log the target
+  and skip, never failing the check); escape hatches: `SKIP_DB_MIGRATE`, `DB_MIGRATE_OPTIONAL`,
+  `DB_MIGRATE_ON_PREVIEW`
 - Readiness failures answer `503 application/problem+json` with `code`, `dependency`, and a closed-set
   `reason` (`database_url_missing`, `connection_refused`, `migration_table_missing`, …) plus remediation
 - **Runbook for Vercel + Supabase: [`docs/deployment/vercel-supabase.md`](docs/deployment/vercel-supabase.md)** -

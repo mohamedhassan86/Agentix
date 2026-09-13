@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 function runScript(env: Record<string, string>) {
   const result = spawnSync(process.execPath, ["scripts/migrate-deploy.mjs"], {
     encoding: "utf-8",
+    timeout: 30_000,
     env: {
       PATH: process.env.PATH,
       HOME: process.env.HOME,
@@ -37,7 +38,45 @@ describe("production migration runner", () => {
   it("does not fail a preview build with no database", () => {
     const { status, output } = runScript({ VERCEL: "1", VERCEL_ENV: "preview" });
     expect(status).toBe(0);
-    expect(output).toMatch(/skipping migrations/i);
+    expect(output).toMatch(/production builds only/i);
+  });
+
+  it("never applies migrations from a preview build, even with only a pooled URL", () => {
+    const { status, output } = runScript({
+      VERCEL: "1",
+      VERCEL_ENV: "preview",
+      POSTGRES_PRISMA_URL: "postgresql://postgres.abc:supersecret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
+    });
+    // Regression: a pooled-only preview environment must not turn the PR check red.
+    expect(status).toBe(0);
+    expect(output).toMatch(/production builds only/i);
+    expect(output).toContain("aws-0-eu-west-1.pooler.supabase.com:6543/postgres");
+    expect(output).not.toContain("supersecret");
+  });
+
+  it("skips (not fails) a pooler-only preview build that explicitly opts in", () => {
+    const { status, output } = runScript({
+      VERCEL: "1",
+      VERCEL_ENV: "preview",
+      DB_MIGRATE_ON_PREVIEW: "true",
+      POSTGRES_PRISMA_URL: "postgresql://postgres.abc:pw@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
+    });
+    expect(status).toBe(0);
+    expect(output).toMatch(/transaction pooler/i);
+    expect(output).toMatch(/skipping/i);
+  });
+
+  it("cannot fail a preview build even when the migration run fails", () => {
+    const { status, output } = runScript({
+      VERCEL: "1",
+      VERCEL_ENV: "preview",
+      DB_MIGRATE_ON_PREVIEW: "true",
+      // Unroutable direct target: the run must fail softly, never break the build.
+      DIRECT_URL: "postgresql://postgres.abc:pw@127.0.0.1:1/postgres",
+      MIGRATE_TIMEOUT_MS: "4000",
+    });
+    expect(status).toBe(0);
+    expect(output).toMatch(/DB_MIGRATE_ON_PREVIEW=true - this preview build continues/i);
   });
 
   it("honours SKIP_DB_MIGRATE", () => {
@@ -52,8 +91,10 @@ describe("production migration runner", () => {
     expect(output).not.toContain("supersecret");
   });
 
-  it("refuses to run migrations through a transaction pooler (port 6543)", () => {
+  it("refuses to run production migrations through a transaction pooler (port 6543)", () => {
     const { status, output } = runScript({
+      VERCEL: "1",
+      VERCEL_ENV: "production",
       DIRECT_URL: "postgresql://user:supersecret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
     });
     expect(status).toBe(1);

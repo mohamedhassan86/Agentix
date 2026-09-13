@@ -64,6 +64,7 @@ Escape hatches (environment variables):
 | Variable | Effect |
 | --- | --- |
 | `SKIP_DB_MIGRATE=true` | Skip migrations in this build (for example a preview with no database). |
+| `DB_MIGRATE_ON_PREVIEW=true` | Also migrate from Preview/Development builds. Off by default: preview builds share the production connection string, so they skip migrations and never fail the check. |
 | `DB_MIGRATE_OPTIONAL=true` | Warn instead of failing the build when migrations fail. |
 | `MIGRATE_TIMEOUT_MS=120000` | Hard timeout for the migration run. |
 | `PRISMA_GENERATE_REQUIRED=true` | Fail the build when the Prisma client cannot be generated. |
@@ -71,6 +72,10 @@ Escape hatches (environment variables):
 
 A production build with **no** connection string fails immediately with the list of accepted
 variable names, instead of deploying a host that can never become ready.
+
+Preview/Development builds never apply migrations and never fail because of them - they log the
+target they would use (`would target <host>:<port>/<db> via <variable>`) and continue. Promotion to
+Production is what applies the schema.
 
 ## Apply migrations manually (no redeploy)
 
