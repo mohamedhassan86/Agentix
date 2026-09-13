@@ -36,6 +36,15 @@ export function createAppComposition(): AppComposition {
   const readinessProbe = new MigrationReadinessProbe();
   const demoRepository = new FoundationDemoRepository(prisma as any);
 
+  // First line to grep in platform logs when the database looks unreachable.
+  logger.info({
+    msg: "database configured",
+    source: config.database.source,
+    pooler: config.database.usesPooler,
+    tlsForced: config.database.tlsForced,
+    directUrlConfigured: config.database.hasDirectUrl,
+  });
+
   const version = process.env.npm_package_version ?? "0.1.0";
 
   const workDeps = {

@@ -201,9 +201,45 @@ npm run lint && npm test && npm run build && npm run license:check && npm run ar
 
 - Web: Next.js Node runtime on Vercel or equivalent Node host, same-origin browser calls
 - Worker: Separate long-running Node container/process, no extra HTTP server, `npm run worker` or `tsx src/worker/main.ts`
-- Database: PostgreSQL 16+, `DATABASE_URL` required, production `APP_ORIGIN` required exact origin, CORS_ORIGINS comma-separated exact origins
+- Database: PostgreSQL 16+, a Postgres URL required (see below), production `APP_ORIGIN` required exact origin, CORS_ORIGINS comma-separated exact origins
 - Env: `.env.example` documents all settings, `.env*` ignored except example, no real connection string or secret committed
 - Worker notices work within 2s, shutdown within 30s
+
+### Vercel + Vercel Postgres (Neon) runbook
+
+1. Connect the integration (Project → Integrations → Postgres/Neon), then make sure the
+   variables are enabled for **Production *and* Preview**:
+   `vercel env ls production` should list `POSTGRES_URL`, `POSTGRES_PRISMA_URL`,
+   `POSTGRES_URL_NON_POOLING` (older projects) or `DATABASE_URL` / `DATABASE_URL_UNPOOLED`
+   (newer Neon-provisioned projects). The app reads either set — see
+   `src/infrastructure/config/database-url.ts` — and enforces `sslmode=require` for remote hosts.
+2. Add the non-secret app vars: `APP_ORIGIN=https://<your-production-domain>`,
+   optionally `CORS_ORIGINS`.
+3. Let `postinstall` generate the client: `package.json` runs `prisma generate` on install,
+   because `src/generated/prisma/client.ts` is a committed **offline stub**. Without it the app
+   answers requests while writing nothing to Postgres (`$transaction` on the stub is not a
+   transaction either). In production the app refuses to boot while that stub is active
+   (`ALLOW_PRISMA_STUB=true` overrides - development/CI only). If the Vercel build cannot reach
+   `binaries.prisma.sh`, set `PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1` like CI does.
+4. Apply the schema **once** against the direct endpoint — never through the pooler, because
+   `CREATE TYPE` cannot run inside a PgBouncer transaction:
+   ```bash
+   vercel env pull .env.local
+   npm run db:doctor          # shows which URL/pooler/TLS/migration state you have
+   npm run db:migrate         # uses POSTGRES_URL_NON_POOLING / DATABASE_URL_UNPOOLED
+   ```
+5. `npm run build` locally before pushing; then check `https://<app>/health/ready`.
+   If it is 503, the `category` logged by the readiness probe (`dns_not_resolved`,
+   `connect_timeout`, `auth_failed`, `tls_handshake_failed`, `too_many_connections`,
+   `schema_not_migrated`, …) names the fix — no connection details are ever exposed.
+6. Deployment-side limits to respect: routes must run on the Node runtime (no `runtime = "edge"`
+   for DB routes), serverless instances must keep `DB_POOL_MAX` at 1–3 when the URL contains a
+   `-pooler` host, and the outbox worker cannot live on Vercel — host `npm run worker` elsewhere
+   (Railway/Fly/container) or drive it from Vercel Cron hitting a route.
+
+Debugging without redeploying: `npm run db:doctor -- --json` runs the exact same resolution order
+the deployed app uses, so a green doctor plus a red app means the *deployment environment* is
+missing a variable rather than the URL being wrong.
 
 ## Constitution compliance
 

@@ -1,4 +1,5 @@
 import { configSchema, parseCorsOrigins } from "./schema";
+import { describeDatabaseUrls, resolveDatabaseUrls, type DatabaseRuntimeInfo } from "./database-url";
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -9,6 +10,8 @@ export class ConfigError extends Error {
 
 export interface AppConfig {
   databaseUrl: string;
+  /** Credential-free facts about how the connection string was resolved. */
+  database: DatabaseRuntimeInfo;
   app: {
     origin: string | null;
     corsOrigins: string[];
@@ -34,10 +37,18 @@ export interface AppConfig {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const databaseUrl = env.DATABASE_URL;
-  if (!databaseUrl) {
+  // DATABASE_URL is the canonical name; Vercel's Postgres/Neon integration injects
+  // POSTGRES_* instead, so resolveDatabaseUrls() accepts both before failing.
+  let database: DatabaseRuntimeInfo;
+  let databaseUrl: string;
+  try {
+    const resolved = resolveDatabaseUrls(env);
+    databaseUrl = resolved.appUrl;
+    database = describeDatabaseUrls(resolved);
+  } catch (e) {
     throw new ConfigError(
-      "DATABASE_URL is required. Remediation: set DATABASE_URL to a valid PostgreSQL connection string in .env.local or environment. Value must not be logged."
+      `DATABASE_URL is required (or a platform equivalent). Remediation: ${(e as Error).message} ` +
+        `Value must never be logged.`
     );
   }
 
@@ -119,6 +130,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const raw = {
     databaseUrl,
+    _database: database,
     app: {
       origin: appOrigin ?? undefined,
       corsOrigins,
@@ -147,7 +159,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new ConfigError(`Configuration invalid: ${parsed.error.message}. Remediation: check environment variables`);
   }
 
-  const rawConfig: AppConfig = {
+  const rawConfig: Omit<AppConfig, "database"> = {
     databaseUrl: parsed.data.databaseUrl,
     app: {
       origin: (parsed.data.app.origin as string) ?? null,
@@ -175,6 +187,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const config = {} as AppConfig;
 
+  Object.defineProperty(config, "database", {
+    value: Object.freeze({ ...database }),
+    enumerable: true,
+    writable: false,
+    configurable: false,
+  });
+
   Object.defineProperty(config, "databaseUrl", {
     value: rawConfig.databaseUrl,
     enumerable: false,
@@ -185,6 +204,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   Object.defineProperty(config, "toJSON", {
     value: function () {
       return {
+        database: (this as AppConfig).database,
         app: (this as AppConfig).app,
         worker: (this as AppConfig).worker,
         foundation: (this as AppConfig).foundation,

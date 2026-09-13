@@ -4,6 +4,8 @@
  * This stub allows build and unit tests to pass without DB.
  */
 
+export const __AGENTIX_STUB_PRISMA_CLIENT = true;
+
 export class PrismaClient {
   constructor(_options?: any) {}
 

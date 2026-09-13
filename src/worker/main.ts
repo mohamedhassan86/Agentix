@@ -3,6 +3,7 @@
  */
 
 import { getWorkerComposition } from "./composition-root";
+import { isConnectionFailureCategory, remediationFor } from "@/infrastructure/persistence/connection-error";
 import { initializeTelemetry } from "@/infrastructure/observability/telemetry";
 
 async function main() {
@@ -32,7 +33,12 @@ async function main() {
       dependency: readiness.dependency,
       detail: readiness.message,
     });
-    console.error(`Worker readiness failed: dependency=${readiness.dependency} message=${readiness.message}`);
+    const detail = readiness.message ?? "unknown";
+    const remediation = isConnectionFailureCategory(detail)
+      ? remediationFor(detail)
+      : "Apply the foundation migration with the non-pooled URL: `npm run db:doctor` explains which check failed.";
+    console.error(`Worker readiness failed: dependency=${readiness.dependency} category=${readiness.message}`);
+    console.error(`Remediation: ${remediation}`);
     process.exit(1);
   }
 
