@@ -20,6 +20,8 @@ export type ReadinessReason =
   | "database_missing"
   | "too_many_connections"
   | "server_unavailable"
+  | "tls_handshake_failed"
+  | "tls_verification_failed"
   // dependency: schema
   | "migration_table_missing"
   | "no_migrations_applied"
@@ -77,6 +79,10 @@ export function remediationForReason(reason: ReadinessReason): string {
       return "Postgres refused a new connection because the pool is exhausted. Use the pooler URL for runtime and keep per-instance connections small.";
     case "server_unavailable":
       return "Postgres is reachable but shutting down or unavailable. Retry after the provider finishes maintenance.";
+    case "tls_handshake_failed":
+      return "The TLS handshake failed. Hosted Postgres requires TLS: add ?sslmode=require to DATABASE_URL, or set PG_SSL_MODE=require. Use PG_SSL_MODE=disable only for a local database.";
+    case "tls_verification_failed":
+      return "TLS is on but the server certificate could not be verified. Provide the provider CA with PG_SSL_CA, or use PG_SSL_MODE=require (encrypt without chain verification).";
     case "migration_table_missing":
       return "The database has no migration history (missing _prisma_migrations). Apply migrations with the direct (port 5432) connection: npm run db:migrate.";
     case "no_migrations_applied":

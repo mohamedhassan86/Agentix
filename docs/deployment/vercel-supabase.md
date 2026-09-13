@@ -17,6 +17,12 @@ Three independent gaps, each of which alone breaks `/health/ready`:
    "Dependency **unknown** unavailable (500)".
 3. **Migrations and runtime need different connections.** Supabase's transaction pooler
    (port 6543) cannot run migrations; migrations need the session/direct connection (port 5432).
+4. **TLS was never requested by the runtime pool.** `node-postgres` does not default to TLS: with
+   no `sslmode` in the URL it connects in plaintext, and hosted Postgres closes that handshake with
+   *"Connection terminated unexpectedly"* and **no error code**. Prisma *does* default to TLS for
+   remote hosts, so `prisma migrate deploy` could succeed while the health probe kept failing with
+   `connection_failed`. The pool now defaults to TLS (`require` semantics) for every non-local host.
+   Symptom in the UI: `DATABASE_UNAVAILABLE` · `dependency: database` · `reason: connection_failed`.
 
 ## What the app expects now
 
@@ -69,6 +75,9 @@ Escape hatches (environment variables):
 | `MIGRATE_TIMEOUT_MS=120000` | Hard timeout for the migration run. |
 | `PRISMA_GENERATE_REQUIRED=true` | Fail the build when the Prisma client cannot be generated. |
 | `PG_POOL_MAX=5` | Lower the per-instance pool size on serverless. |
+| `PG_SSL_MODE=require` | Force TLS: `disable`, `require` (encrypt, no chain verification - the default for remote hosts), `verify-ca`, `verify-full`. |
+| `PG_SSL_CA=/path/ca.pem` | Provider CA bundle for `verify-ca`/`verify-full`. |
+| `PG_CONNECT_TIMEOUT_MS=2000` | TCP/connection timeout (default 2000, bounded by the 2 s readiness budget). |
 
 A production build with **no** connection string fails immediately with the list of accepted
 variable names, instead of deploying a host that can never become ready.
@@ -76,6 +85,33 @@ variable names, instead of deploying a host that can never become ready.
 Preview/Development builds never apply migrations and never fail because of them - they log the
 target they would use (`would target <host>:<port>/<db> via <variable>`) and continue. Promotion to
 Production is what applies the schema.
+
+## Diagnose before guessing
+
+```bash
+npm run db:diagnose                 # human-readable, exits non-zero on the first failure
+npm run db:diagnose -- --json       # machine-readable report for CI
+```
+
+It walks the same path the deployed app walks - variable resolution → host/port → TCP → **TLS** →
+authentication → `SELECT 1` → `_prisma_migrations` → foundation tables - and prints a diagnosis +
+fix per failure, using only `host:port/database` and variable *names* (never a credential).
+Typical output for the TLS case:
+
+```
+[PASS] connection string: using DATABASE_URL
+[PASS] target: aws-0-eu-west-1.pooler.supabase.com:6543/postgres (transaction pooler) - runtime from DATABASE_URL
+[PASS] tls: mode=require (from default)
+[PASS] tcp connect: aws-0-eu-west-1.pooler.supabase.com:6543 accepted a TCP connection
+[FAIL] authentication: login failed (EPROTO)
+       FIX: TLS mismatch: add ?sslmode=require to DATABASE_URL or set PG_SSL_MODE=require.
+```
+
+To check what the *deployed* environment holds, pull it first:
+
+```bash
+vercel env pull .env.local && npm run db:diagnose
+```
 
 ## Apply migrations manually (no redeploy)
 
@@ -118,6 +154,8 @@ The UI shows the same fields (dependency, code, reason, correlation id) plus the
 | --- | --- | --- |
 | `database_url_missing` | database | No connection string in this environment (also used when configuration is unreadable). |
 | `connection_refused` | database | Host/port does not accept connections. |
+| `tls_handshake_failed` | database | `EPROTO`/SSL errors: the server expects TLS, the client did not offer it (`PG_SSL_MODE=require`). |
+| `tls_verification_failed` | database | The server certificate is not trusted: provide `PG_SSL_CA`, or use `PG_SSL_MODE=require`. |
 | `connection_timeout` | database | No answer within the 2 s probe budget. |
 | `authentication_failed` | database | Wrong role/password. |
 | `database_missing` | database | Database name does not exist. |
@@ -145,5 +183,12 @@ The route dispatcher logs stable machine fields only (no driver messages, no con
  "correlationId":"01a0…"}
 ```
 
+The readiness probe also logs the classification with the driver code, so an opaque
+`connection_failed` is identifiable in the host's logs:
+
+```json
+{"level":"warn","operation":"readinessProbe","reason":"connection_failed","dependency":"database","driverCode":"EPROTO"}
+```
+
 Filter the Vercel function logs by `correlationId` from the UI chip to find the exact failing
-request, then match `reason` against the table above.
+request, then match `reason` (and `driverCode`) against the table above.

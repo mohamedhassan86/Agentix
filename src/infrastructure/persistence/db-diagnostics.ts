@@ -10,13 +10,27 @@ import { dependencyForReason } from "@/application/shared/ports/readiness-probe"
 export interface DatabaseFailureClassification {
   dependency: "database" | "schema";
   reason: ReadinessReason;
-  /** SQLSTATE (Postgres), Prisma code, or socket errno; safe to log, never a credential. */
+  /** SQLSTATE (Postgres), Prisma code, or driver errno; safe to log, never a credential. */
+  driverCode?: string;
+  /** @deprecated kept for existing callers; equals driverCode for SQLSTATE failures. */
   sqlState?: string;
 }
 
 /** Node socket errno -> reason (a failure to reach the server at all). */
 const SOCKET_REASONS: Record<string, ReadinessReason> = {
   ECONNREFUSED: "connection_refused",
+  // TLS handshake against a server that expects TLS (or a plaintext endpoint that is not
+  // Postgres at all). `pg` surfaces this without a SQLSTATE.
+  EPROTO: "tls_handshake_failed",
+  ERR_SSL_WRONG_VERSION_NUMBER: "tls_handshake_failed",
+  ERR_SSL_PACKET_LENGTH_TOO_LONG: "tls_handshake_failed",
+  ERR_SSL_UNSUPPORTED_PROTOCOL: "tls_handshake_failed",
+  ERR_SSL_TLSV1_ALERT_UNKNOWN_CA: "tls_verification_failed",
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: "tls_verification_failed",
+  SELF_SIGNED_CERT_IN_CHAIN: "tls_verification_failed",
+  DEPTH_ZERO_SELF_SIGNED_CERT: "tls_verification_failed",
+  CERT_HAS_EXPIRED: "tls_verification_failed",
+  ERR_TLS_CERT_ALTNAME_INVALID: "tls_verification_failed",
   ENOTFOUND: "connection_refused",
   EAI_AGAIN: "connection_refused",
   EHOSTUNREACH: "connection_refused",
@@ -25,7 +39,6 @@ const SOCKET_REASONS: Record<string, ReadinessReason> = {
   ESOCKETTIMEDOUT: "connection_timeout",
   ECONNRESET: "connection_failed",
   EPIPE: "connection_failed",
-  EPROTO: "connection_failed",
 };
 
 /** Postgres SQLSTATE -> reason. */
@@ -93,19 +106,19 @@ export function classifyDatabaseFailure(error: unknown): DatabaseFailureClassifi
   if (sqlState) {
     const reason = SQLSTATE_REASONS[sqlState];
     if (!reason) return null;
-    return { dependency: dependencyForReason(reason), reason, sqlState };
+    return { dependency: dependencyForReason(reason), reason, driverCode: sqlState, sqlState };
   }
 
   if (prismaCode) {
     const reason = PRISMA_REASONS[prismaCode];
     if (!reason) return null;
-    return { dependency: dependencyForReason(reason), reason, sqlState: prismaCode };
+    return { dependency: dependencyForReason(reason), reason, driverCode: prismaCode };
   }
 
   if (errno) {
     const reason = SOCKET_REASONS[errno];
     if (!reason) return null;
-    return { dependency: dependencyForReason(reason), reason };
+    return { dependency: dependencyForReason(reason), reason, driverCode: errno };
   }
 
   return null;

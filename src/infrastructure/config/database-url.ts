@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 /**
  * Single source of truth for resolving the Postgres connection string.
  *
@@ -90,4 +92,92 @@ export function describeConnectionTarget(url: string): ConnectionTarget | null {
 /** True when the value looks like a Postgres connection string (used for validation only). */
 export function isPostgresUrl(url: string): boolean {
   return /^postgres(ql)?:\/\//i.test(url);
+}
+
+export type SslMode = "disable" | "require" | "verify-ca" | "verify-full";
+
+/** Hosts where TLS is neither expected nor usually available (local docker Postgres). */
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"]);
+
+export function isLocalHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return LOCAL_HOSTNAMES.has(host) || host.endsWith(".local") || host.endsWith(".internal");
+}
+
+export interface SslResolution {
+  /** Connection string with SSL parameters removed - the explicit `ssl` value governs. */
+  connectionString: string;
+  ssl: false | { rejectUnauthorized: boolean; ca?: string };
+  mode: SslMode;
+  source: "env" | "url" | "default";
+}
+
+/**
+ * Decide how the driver must secure the connection.
+ *
+ * `pg` does **not** default to TLS: without `sslmode` (or `ssl`) in the connection string it
+ * connects in plaintext, and hosted Postgres (Supabase, Neon, RDS) drops that handshake with
+ * "Connection terminated unexpectedly" and no error code. Prisma does default to TLS for remote
+ * hosts, which is why migrations can succeed while the runtime pool fails.
+ *
+ * Precedence: PG_SSL_MODE (deployment override) > URL `sslmode` > default.
+ * Default: TLS required for remote hosts (libpq `require` semantics: encrypt, do not verify the
+ * chain), disabled for local hosts. Use `verify-ca`/`verify-full` (with PG_SSL_CA) to verify.
+ */
+export function resolveDatabaseSsl(connectionString: string, env: NodeJS.ProcessEnv = process.env): SslResolution {
+  const withoutSslParams = (): { url: string; hostname: string } => {
+    const parsed = new URL(connectionString);
+    for (const key of ["sslmode", "ssl", "uselibpqcompat", "sslrootcert", "sslcert", "sslkey"]) {
+      parsed.searchParams.delete(key);
+    }
+    return { url: parsed.toString(), hostname: parsed.hostname };
+  };
+
+  let url: string;
+  let hostname: string;
+  try {
+    const stripped = withoutSslParams();
+    url = stripped.url;
+    hostname = stripped.hostname;
+  } catch {
+    // Unparseable URL: leave it untouched and let the driver report the failure.
+    return { connectionString, ssl: false, mode: "disable", source: "default" };
+  }
+
+  let urlMode: SslMode | undefined;
+  try {
+    const raw = new URL(connectionString).searchParams.get("sslmode")?.toLowerCase();
+    if (raw === "disable" || raw === "require" || raw === "verify-ca" || raw === "verify-full") urlMode = raw;
+    else if (raw === "prefer" || raw === "allow" || raw === "no-verify") urlMode = "require";
+  } catch {
+    urlMode = undefined;
+  }
+
+  const envModeRaw = env.PG_SSL_MODE?.trim().toLowerCase();
+  const envMode = envModeRaw === "disable" || envModeRaw === "require" || envModeRaw === "verify-ca" || envModeRaw === "verify-full" ? envModeRaw : undefined;
+
+  const mode: SslMode = envMode ?? urlMode ?? (isLocalHostname(hostname) ? "disable" : "require");
+  const source: SslResolution["source"] = envMode ? "env" : urlMode ? "url" : "default";
+
+  if (mode === "disable") {
+    return { connectionString: url, ssl: false, mode, source };
+  }
+
+  const caPath = env.PG_SSL_CA;
+  const ca = caPath ? readFileSafe(caPath) : undefined;
+  const verify = mode === "verify-ca" || mode === "verify-full";
+  return {
+    connectionString: url,
+    ssl: ca ? { rejectUnauthorized: verify, ca } : { rejectUnauthorized: verify },
+    mode,
+    source,
+  };
+}
+
+function readFileSafe(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return undefined;
+  }
 }

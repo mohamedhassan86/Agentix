@@ -1,5 +1,6 @@
 /**
- * Config check shell - validates DATABASE_URL presence.
+ * Config check shell - validates the database configuration and reports how the runtime pool
+ * will secure it (names and modes only, never values).
  * Phase 1 shell; Phase 2 will implement full typed config validation.
  */
 import { config } from "dotenv";
@@ -32,4 +33,11 @@ if (!databaseKey) {
   process.exit(1);
 }
 
-console.log(`Config check passed (connection string from ${databaseKey})`);
+const { describePgPoolSecurity } = await import("../src/infrastructure/persistence/pg");
+const security = describePgPoolSecurity();
+if (security) {
+  // Names and modes only: never the host, the user, or the credential.
+  console.log(`Config check passed (connection string from ${security.source}, tls=${security.sslMode} from ${security.sslSource})`);
+} else {
+  console.log(`Config check passed (connection string from ${databaseKey})`);
+}

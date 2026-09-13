@@ -1,13 +1,16 @@
 import { Pool, type PoolConfig } from "pg";
-import { RUNTIME_DATABASE_URL_KEYS, resolveRuntimeDatabaseUrl } from "@/infrastructure/config/database-url";
+import { RUNTIME_DATABASE_URL_KEYS, resolveDatabaseSsl, resolveRuntimeDatabaseUrl } from "@/infrastructure/config/database-url";
 
 let pool: Pool | null = null;
 
+function positiveInt(value: string | undefined, fallback: number, min = 1, max = 60000): number {
+  const parsed = value ? Number(value) : NaN;
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
 function defaultPoolMax(): number {
-  const raw = process.env.PG_POOL_MAX;
-  const parsed = raw ? Number(raw) : NaN;
   // Small per-instance pools: serverless instances must not exhaust the provider pool.
-  return Number.isFinite(parsed) && parsed >= 1 && parsed <= 50 ? parsed : 10;
+  return positiveInt(process.env.PG_POOL_MAX, 10, 1, 50);
 }
 
 export function createPgPool(config?: PoolConfig): Pool {
@@ -19,15 +22,30 @@ export function createPgPool(config?: PoolConfig): Pool {
       `No Postgres connection string configured. Accepted variables: ${RUNTIME_DATABASE_URL_KEYS.join(", ")}. Remediation: set DATABASE_URL in the host environment.`
     );
   }
+
+  // Hosted Postgres requires TLS and `pg` does not default to it: without this the driver
+  // connects in plaintext and the server drops the socket with no error code
+  // ("Connection terminated unexpectedly"), which is undiagnosable from the outside.
+  const sslResolution = resolveDatabaseSsl(connectionString);
+
   const poolConfig: PoolConfig = {
-    connectionString,
+    connectionString: sslResolution.connectionString,
+    ssl: sslResolution.ssl,
     max: defaultPoolMax(),
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: positiveInt(process.env.PG_CONNECT_TIMEOUT_MS, 2000, 200, 30000),
     application_name: "agentix-web",
     ...config,
   };
   return new Pool(poolConfig);
+}
+
+/** Credential-free description of how the runtime pool is secured (for logs and diagnostics). */
+export function describePgPoolSecurity(): { source: string; sslMode: string; sslSource: string } | null {
+  const resolved = resolveRuntimeDatabaseUrl();
+  if (!resolved) return null;
+  const ssl = resolveDatabaseSsl(resolved.url);
+  return { source: resolved.source, sslMode: ssl.mode, sslSource: ssl.source };
 }
 
 export function getPgPool(): Pool {

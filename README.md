@@ -211,7 +211,10 @@ npm run lint && npm test && npm run build && npm run license:check && npm run ar
   and skip, never failing the check); escape hatches: `SKIP_DB_MIGRATE`, `DB_MIGRATE_OPTIONAL`,
   `DB_MIGRATE_ON_PREVIEW`
 - Readiness failures answer `503 application/problem+json` with `code`, `dependency`, and a closed-set
-  `reason` (`database_url_missing`, `connection_refused`, `migration_table_missing`, …) plus remediation
+  `reason` (`database_url_missing`, `connection_refused`, `tls_handshake_failed`, `migration_table_missing`, …)
+  plus remediation; the probe logs the same reason with the driver code (no message, no credential)
+- Database TLS: the runtime pool defaults to `require` for remote hosts (`pg` does not), overridable
+  with `PG_SSL_MODE` / `PG_SSL_CA`; `npm run db:diagnose` walks vars → TCP → TLS → auth → query → migration
 - **Runbook for Vercel + Supabase: [`docs/deployment/vercel-supabase.md`](docs/deployment/vercel-supabase.md)** -
   required environment variables, pooler vs direct ports, manual migration, verification, troubleshooting
 

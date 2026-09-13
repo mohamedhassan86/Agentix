@@ -2,6 +2,7 @@ import type { IReadinessProbe, ReadinessProbeResult, ReadinessReason } from "@/a
 import { getPgPool } from "./pg";
 import { resolveRuntimeDatabaseUrl } from "@/infrastructure/config/database-url";
 import { classifyDatabaseFailure } from "./db-diagnostics";
+import { getLogger } from "@/infrastructure/observability/logger";
 
 /** Bounded probe budget: every query races this timeout so readiness never hangs a request. */
 export const PROBE_TIMEOUT_MS = 2000;
@@ -12,6 +13,27 @@ const MIGRATION_TABLE = "_prisma_migrations";
 interface QueryableClient {
   query(sql: string, params?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
   release(): void;
+}
+
+/**
+ * Driver codes are safe to log (SQLSTATE, errno, Prisma code) and turn an opaque
+ * "connection_failed" into an actionable line in the host's logs. Error *messages* are never
+ * logged: they can embed the host, the role, or the whole connection string.
+ */
+function unclassifiedDriverCode(error: unknown): string {
+  const code = (error as { code?: unknown })?.code;
+  if (typeof code === "string" && code.length <= 40) return code;
+  const name = (error as { name?: unknown })?.name;
+  if (typeof name === "string" && name.length <= 40) return name;
+  return "unclassified";
+}
+
+function logProbeFailure(reason: string, dependency: string, driverCode?: string): void {
+  try {
+    getLogger().warn({ operation: "readinessProbe", reason, dependency, driverCode: driverCode ?? "unclassified" });
+  } catch {
+    void 0;
+  }
 }
 
 interface ProbeDependencies {
@@ -111,13 +133,16 @@ export class MigrationReadinessProbe implements IReadinessProbe {
       const timeout = (error as { isProbeTimeout?: boolean }).isProbeTimeout === true;
       const classified = classifyDatabaseFailure(error);
       if (classified) {
+        logProbeFailure(classified.reason, classified.dependency, classified.driverCode);
         return { status: "not_ready", dependency: classified.dependency, reason: classified.reason, message: "Database dependency unavailable" };
       }
       if (timeout) {
+        logProbeFailure("connection_timeout", "database", "probe_timeout");
         return { status: "not_ready", dependency: "database", reason: "connection_timeout", message: "Database probe timed out" };
       }
       // Unclassified driver/socket failure: still a database dependency failure,
       // reported with a closed-set reason so no driver text or credential leaks.
+      logProbeFailure("connection_failed", "database", unclassifiedDriverCode(error));
       return { status: "not_ready", dependency: "database", reason: "connection_failed", message: "Database unavailable" };
     } finally {
       try {
@@ -153,11 +178,14 @@ export class DatabaseReadinessProbe implements IReadinessProbe {
     } catch (error) {
       const classified = classifyDatabaseFailure(error);
       if (classified) {
+        logProbeFailure(classified.reason, "database", classified.driverCode);
         return { status: "not_ready", dependency: "database", reason: classified.reason, message: "Database unavailable" };
       }
       if ((error as { isProbeTimeout?: boolean }).isProbeTimeout === true) {
+        logProbeFailure("connection_timeout", "database", "probe_timeout");
         return { status: "not_ready", dependency: "database", reason: "connection_timeout", message: "Database probe timed out" };
       }
+      logProbeFailure("connection_failed", "database", unclassifiedDriverCode(error));
       return { status: "not_ready", dependency: "database", reason: "connection_failed", message: "Database unavailable" };
     } finally {
       try {

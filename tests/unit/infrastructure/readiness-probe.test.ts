@@ -140,6 +140,24 @@ describe("migration readiness probe", () => {
     expect(JSON.stringify(result)).not.toContain("postgres://");
   });
 
+  it("reports a TLS handshake failure instead of a generic connection failure", async () => {
+    const probe = new MigrationReadinessProbe({
+      getPool: () => ({
+        connect: async () => {
+          // What `pg` raises when a hosted database closes a plaintext handshake.
+          throw Object.assign(new Error("write EPROTO 1234:error:100000f7:SSL routines:OPENSSL_internal:WRONG_VERSION_NUMBER"), {
+            code: "EPROTO",
+          });
+        },
+      }),
+      env: environment,
+    });
+
+    const result = await probe.check();
+    expect(result).toMatchObject({ status: "not_ready", dependency: "database", reason: "tls_handshake_failed" });
+    expect(JSON.stringify(result)).not.toContain("OPENSSL");
+  });
+
   it("bounds every query with a timeout budget", async () => {
     const hanging = new MigrationReadinessProbe({
       getPool: () => ({ connect: () => new Promise(() => undefined) as never }),

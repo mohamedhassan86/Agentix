@@ -39,6 +39,27 @@ describe("database failure classification", () => {
     expect(classifyDatabaseFailure(wrapped)?.reason).toBe("connection_failed");
   });
 
+  it("maps TLS handshake failures and certificate failures to distinct reasons", () => {
+    // `pg` reports a plaintext handshake against a TLS-only server as EPROTO.
+    const handshake = classifyDatabaseFailure(Object.assign(new Error("write EPROTO"), { code: "EPROTO" }));
+    expect(handshake).toMatchObject({ dependency: "database", reason: "tls_handshake_failed", driverCode: "EPROTO" });
+
+    expect(classifyDatabaseFailure(Object.assign(new Error("self signed"), { code: "SELF_SIGNED_CERT_IN_CHAIN" }))?.reason).toBe(
+      "tls_verification_failed"
+    );
+    expect(classifyDatabaseFailure(Object.assign(new Error("altname"), { code: "ERR_TLS_CERT_ALTNAME_INVALID" }))?.reason).toBe(
+      "tls_verification_failed"
+    );
+  });
+
+  it("always reports a driver code for classified failures so logs stay actionable", () => {
+    const errno = classifyDatabaseFailure(Object.assign(new Error("refused"), { code: "ECONNREFUSED" }));
+    expect(errno?.driverCode).toBe("ECONNREFUSED");
+    const sqlstate = classifyDatabaseFailure(Object.assign(new Error("auth"), { code: "28P01" }));
+    expect(sqlstate?.driverCode).toBe("28P01");
+    expect(sqlstate?.sqlState).toBe("28P01");
+  });
+
   it("returns null for errors that are not database failures", () => {
     expect(classifyDatabaseFailure(new Error("Failed with postgres://user:pass@localhost/db"))).toBeNull();
     expect(classifyDatabaseFailure(Object.assign(new Error("validation"), { code: "VALIDATION_FAILED" }))).toBeNull();

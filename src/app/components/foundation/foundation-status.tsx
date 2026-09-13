@@ -34,7 +34,12 @@ const REASON_HINTS: Record<string, string> = {
   connection_refused:
     "The database refused the connection. On Supabase use the transaction pooler URL (port 6543) for DATABASE_URL.",
   connection_timeout: "The database did not answer within 2s. Check network access from the host to Postgres.",
-  connection_failed: "The connection failed. Verify the connection string and that TLS (sslmode) is enabled.",
+  connection_failed:
+    "The connection failed. Verify the connection string, and that TLS is on: hosted Postgres needs ?sslmode=require in DATABASE_URL.",
+  tls_handshake_failed:
+    "TLS handshake failed. Add ?sslmode=require to DATABASE_URL (or set PG_SSL_MODE=require) - hosted Postgres rejects plaintext connections.",
+  tls_verification_failed:
+    "TLS is on but the certificate could not be verified. Set PG_SSL_CA to the provider CA, or PG_SSL_MODE=require to encrypt without chain verification.",
   authentication_failed: "Postgres rejected the credentials. Re-copy the connection string and password.",
   database_missing: "The database named in the connection string does not exist on this server.",
   too_many_connections: "The provider's connection pool is exhausted. Use the pooler URL for runtime traffic.",
