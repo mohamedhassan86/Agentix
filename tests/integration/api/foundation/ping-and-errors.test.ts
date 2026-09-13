@@ -48,6 +48,23 @@ describe("ping and error baseline (integration)", () => {
     expect(malformed).toBeNull();
   });
 
+  it("CORS allows same-origin requests even with an empty allow-list", async () => {
+    const { parseAndValidateOrigin, isOriginAllowed, getCorsHeaders } = await import("@/app/lib/cors");
+
+    // Empty allow-list (local-dev default): browsers send Origin on same-origin
+    // POST/PUT/DELETE, so the app's own origin must pass.
+    const same = parseAndValidateOrigin("http://localhost:3000");
+    expect(isOriginAllowed(same, [], { appOrigin: "http://localhost:3000" })).toBe(true);
+    expect(isOriginAllowed(same, [], { requestHost: "localhost:3000" })).toBe(true);
+    expect(getCorsHeaders(same, [], { appOrigin: "http://localhost:3000" })).not.toBeNull();
+
+    // Cross-origin is still denied unless explicitly allow-listed.
+    const evil = parseAndValidateOrigin("https://evil.com");
+    expect(isOriginAllowed(evil, [])).toBe(false);
+    expect(isOriginAllowed(evil, [], { appOrigin: "http://localhost:3000", requestHost: "localhost:3000" })).toBe(false);
+    expect(getCorsHeaders(evil, [])).toBeNull();
+  });
+
   it("client uses relative URL (no absolute localhost)", async () => {
     const { readFileSync } = await import("node:fs");
     const clientPath = "src/app/lib/api/client.ts";

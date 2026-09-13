@@ -3,7 +3,7 @@ import { getAppComposition } from "@/app/lib/composition-root";
 import { createRequestContext } from "@/application/shared/context/request-context";
 import { getCorrelationIdFromHeaders } from "@/app/lib/correlation";
 import { mapErrorToProblem } from "@/app/lib/problem-response";
-import { getCorsHeaders, getAllowedOrigins, parseAndValidateOrigin } from "@/app/lib/cors";
+import { getCorsHeaders, getAllowedOrigins, getAppOrigin, getRequestHost, parseAndValidateOrigin } from "@/app/lib/cors";
 import { getLogger } from "@/infrastructure/observability/logger";
 
 export async function POST(request: Request): Promise<Response> {
@@ -14,9 +14,10 @@ export async function POST(request: Request): Promise<Response> {
   const originHeader = request.headers.get("Origin");
   const origin = parseAndValidateOrigin(originHeader);
   const allowedOrigins = getAllowedOrigins();
+  const originCheck = { appOrigin: getAppOrigin(), requestHost: getRequestHost(request.headers) };
 
   if (origin) {
-    const corsHeaders = getCorsHeaders(origin, allowedOrigins);
+    const corsHeaders = getCorsHeaders(origin, allowedOrigins, originCheck);
     if (!corsHeaders) {
       const problem = mapErrorToProblem(new Error("CORS origin not allowed"), correlationId);
       problem.status = 403;
@@ -81,7 +82,7 @@ export async function POST(request: Request): Promise<Response> {
     };
 
     if (origin) {
-      const corsHeaders = getCorsHeaders(origin, allowedOrigins);
+      const corsHeaders = getCorsHeaders(origin, allowedOrigins, originCheck);
       if (corsHeaders) Object.assign(headers, corsHeaders);
     }
 
@@ -100,7 +101,7 @@ export async function POST(request: Request): Promise<Response> {
     };
 
     if (origin) {
-      const corsHeaders = getCorsHeaders(origin, allowedOrigins);
+      const corsHeaders = getCorsHeaders(origin, allowedOrigins, originCheck);
       if (corsHeaders) Object.assign(headers, corsHeaders);
     }
 
