@@ -20,6 +20,6 @@ export default defineConfig({
   schema: './prisma/schema.prisma',
   datasource: {
     // Priority: System Env > .env.local > .env
-    url: "postgres://postgres.cxxnqhdropcadcxcsbve:KmiN6JcDteSDKLHj@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require&pgbouncer=true" || process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL,
+    url: process.env.DATABASE_URL || process.env.POSTGRES_PRISMA_URL,
   },
 });
