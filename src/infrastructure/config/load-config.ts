@@ -24,6 +24,14 @@ export interface AppConfig {
   foundation: {
     demoEnabled: boolean;
   };
+  auth: {
+    secret: string;
+    sessionMaxAge: number;
+  };
+  messaging: {
+    deliveryKey: string;
+    deliveryKeyVersion: number;
+  };
   log: {
     level: "debug" | "info" | "warn" | "error";
   };
@@ -117,6 +125,41 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new ConfigError(`LOG_LEVEL must be one of ${allowedLevels.join(", ")}. Remediation: set LOG_LEVEL to info`);
   }
 
+  // Auth secret - required in production, optional in dev/test with safe default
+  let authSecret = env.AUTH_SECRET;
+  if (isProduction && !authSecret) {
+    throw new ConfigError(
+      "AUTH_SECRET is required in production. Remediation: set AUTH_SECRET to a random 32+ character string (e.g. openssl rand -base64 32). Value must not be logged."
+    );
+  }
+  if (!authSecret) {
+    authSecret = "dev-auth-secret-must-be-32-chars-min-for-local-only";
+  }
+  if (authSecret.length < 32) {
+    throw new ConfigError("AUTH_SECRET must be at least 32 characters. Remediation: generate with openssl rand -base64 32");
+  }
+
+  const sessionMaxAgeRaw = env.AUTH_SESSION_MAX_AGE ? Number(env.AUTH_SESSION_MAX_AGE) : 2592000;
+  if (isNaN(sessionMaxAgeRaw) || sessionMaxAgeRaw < 60 || sessionMaxAgeRaw > 2592000) {
+    throw new ConfigError("AUTH_SESSION_MAX_AGE must be between 60 and 2592000. Remediation: set to 2592000");
+  }
+
+  // Messaging delivery key - required in production, optional in dev/test
+  let deliveryKey = env.MESSAGE_DELIVERY_KEY;
+  if (isProduction && !deliveryKey) {
+    throw new ConfigError(
+      "MESSAGE_DELIVERY_KEY is required in production. Remediation: set MESSAGE_DELIVERY_KEY to a 32-byte base64 key (e.g. openssl rand -base64 32). Value must not be logged."
+    );
+  }
+  if (!deliveryKey) {
+    deliveryKey = "dev-message-delivery-key-32-bytes-min-local-only!!";
+  }
+
+  const deliveryKeyVersionRaw = env.MESSAGE_DELIVERY_KEY_VERSION ? Number(env.MESSAGE_DELIVERY_KEY_VERSION) : 1;
+  if (isNaN(deliveryKeyVersionRaw) || deliveryKeyVersionRaw < 1) {
+    throw new ConfigError("MESSAGE_DELIVERY_KEY_VERSION must be >=1. Remediation: set to 1");
+  }
+
   const raw = {
     databaseUrl,
     app: {
@@ -132,6 +175,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     foundation: {
       demoEnabled,
+    },
+    auth: {
+      secret: authSecret,
+      sessionMaxAge: sessionMaxAgeRaw,
+    },
+    messaging: {
+      deliveryKey,
+      deliveryKeyVersion: deliveryKeyVersionRaw,
     },
     log: {
       level: logLevel,
@@ -164,6 +215,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     foundation: {
       demoEnabled: parsed.data.foundation.demoEnabled,
     },
+    auth: {
+      secret: parsed.data.auth.secret as string,
+      sessionMaxAge: parsed.data.auth.sessionMaxAge,
+    },
+    messaging: {
+      deliveryKey: parsed.data.messaging.deliveryKey as string,
+      deliveryKeyVersion: parsed.data.messaging.deliveryKeyVersion,
+    },
     log: {
       level: parsed.data.log.level as any,
     },
@@ -182,6 +241,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     configurable: false,
   });
 
+  Object.defineProperty(config, "auth", {
+    value: Object.freeze({ ...rawConfig.auth }),
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(config, "messaging", {
+    value: Object.freeze({ ...rawConfig.messaging }),
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+
   Object.defineProperty(config, "toJSON", {
     value: function () {
       return {
@@ -190,6 +263,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         foundation: (this as AppConfig).foundation,
         log: (this as AppConfig).log,
         otel: (this as AppConfig).otel,
+        auth: { secret: "[REDACTED]", sessionMaxAge: (this as AppConfig).auth.sessionMaxAge },
+        messaging: { deliveryKey: "[REDACTED]", deliveryKeyVersion: (this as AppConfig).messaging.deliveryKeyVersion },
         databaseUrl: "[REDACTED]",
       };
     },
