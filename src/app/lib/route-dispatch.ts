@@ -3,6 +3,7 @@ import { createRequestContext } from "@/application/shared/context/request-conte
 import { getCorrelationIdFromHeaders } from "./correlation";
 import { mapErrorToProblem, createProblemResponse } from "./problem-response";
 import { getCorsHeaders, getAllowedOrigins, parseAndValidateOrigin } from "./cors";
+import { AppError } from "@/application/shared/errors/app-error";
 import { getLogger } from "@/infrastructure/observability/logger";
 import { recordHttpRequest, recordHttpFailure } from "@/infrastructure/observability/metrics";
 
@@ -86,7 +87,8 @@ export async function dispatchRoute<TReq>(params: {
       code: problem.code,
       dependency: problem.dependency,
       reason: problem.reason,
-      errorName: error instanceof Error ? error.name : typeof error,
+      // Class names are minified in production builds, so report a stable kind instead.
+      errorKind: error instanceof AppError ? "app_error" : "unknown_error",
       operation: params.operation,
       correlationId,
     });
