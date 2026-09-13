@@ -227,6 +227,10 @@
               "database",
               "schema"
             ]
+          },
+          "reason": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,63}$"
           }
         },
         "required": [

@@ -10,6 +10,11 @@ export interface ProblemDetails {
   errors?: Record<string, string[]>;
   instance?: string;
   dependency?: "database" | "schema";
+  /**
+   * Machine-readable, non-sensitive failure reason (closed set, lowercase snake_case).
+   * Lets clients show remediation without parsing prose.
+   */
+  reason?: string;
 }
 
 export function createProblemDetails(params: {
@@ -22,6 +27,7 @@ export function createProblemDetails(params: {
   errors?: Record<string, string[]>;
   instance?: string;
   dependency?: "database" | "schema";
+  reason?: string;
 }): ProblemDetails {
   return {
     type: params.type ?? "about:blank",
@@ -33,5 +39,6 @@ export function createProblemDetails(params: {
     errors: params.errors,
     instance: params.instance,
     dependency: params.dependency,
+    reason: params.reason,
   };
 }

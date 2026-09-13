@@ -204,6 +204,14 @@ npm run lint && npm test && npm run build && npm run license:check && npm run ar
 - Database: PostgreSQL 16+, `DATABASE_URL` required, production `APP_ORIGIN` required exact origin, CORS_ORIGINS comma-separated exact origins
 - Env: `.env.example` documents all settings, `.env*` ignored except example, no real connection string or secret committed
 - Worker notices work within 2s, shutdown within 30s
+- Migrations: `npm run db:migrate:deploy` resolves the direct/session connection (`DIRECT_URL`,
+  `POSTGRES_URL_NON_POOLING`, …), refuses a transaction pooler on port 6543, and never prints a credential
+- Host build: `npm run build:vercel` = generate Prisma client → apply pending migrations → `next build`
+  (wired in `vercel.json`); `SKIP_DB_MIGRATE=true` and `DB_MIGRATE_OPTIONAL=true` are the escape hatches
+- Readiness failures answer `503 application/problem+json` with `code`, `dependency`, and a closed-set
+  `reason` (`database_url_missing`, `connection_refused`, `migration_table_missing`, …) plus remediation
+- **Runbook for Vercel + Supabase: [`docs/deployment/vercel-supabase.md`](docs/deployment/vercel-supabase.md)** -
+  required environment variables, pooler vs direct ports, manual migration, verification, troubleshooting
 
 ## Constitution compliance
 

@@ -11,13 +11,52 @@ interface HealthData {
   time: string;
 }
 
+/** RFC 9457 Problem Details as returned by /health/ready when the host is not ready. */
+interface ProblemDetails {
+  type?: string;
+  title?: string;
+  status?: number;
+  code?: string;
+  correlationId?: string;
+  detail?: string;
+  dependency?: "database" | "schema";
+  reason?: string;
+}
+
 interface FoundationStatusProps {
   initialVersion?: string;
+}
+
+/** Operator guidance keyed by the machine-readable reason from the problem response. */
+const REASON_HINTS: Record<string, string> = {
+  database_url_missing:
+    "Add DATABASE_URL (or POSTGRES_PRISMA_URL / POSTGRES_URL) to the host environment variables, then redeploy.",
+  connection_refused:
+    "The database refused the connection. On Supabase use the transaction pooler URL (port 6543) for DATABASE_URL.",
+  connection_timeout: "The database did not answer within 2s. Check network access from the host to Postgres.",
+  connection_failed: "The connection failed. Verify the connection string and that TLS (sslmode) is enabled.",
+  authentication_failed: "Postgres rejected the credentials. Re-copy the connection string and password.",
+  database_missing: "The database named in the connection string does not exist on this server.",
+  too_many_connections: "The provider's connection pool is exhausted. Use the pooler URL for runtime traffic.",
+  server_unavailable: "The database is restarting or under maintenance. Retry in a moment.",
+  migration_table_missing: "No migration history found. Run `npm run db:migrate` with the direct (port 5432) connection.",
+  no_migrations_applied: "The database is reachable but has no migrations. Run `npm run db:migrate`.",
+  foundation_migration_not_applied: "Migration 001_solution_foundation is missing. Run `npm run db:migrate`.",
+  migration_history_drift:
+    "Tables exist but the migration is not recorded. Run `npx prisma migrate resolve --applied 20250912000000_001_solution_foundation`.",
+};
+
+function titleForProblem(problem: ProblemDetails | null, fallback: string): string {
+  if (problem?.title) return problem.title;
+  if (problem?.dependency === "schema") return "Database schema not ready";
+  if (problem?.dependency === "database") return "Database dependency unavailable";
+  return fallback;
 }
 
 export function FoundationStatus({ initialVersion = "0.1.0" }: FoundationStatusProps) {
   const [state, setState] = useState<StatusState>("loading");
   const [health, setHealth] = useState<HealthData | null>(null);
+  const [problem, setProblem] = useState<ProblemDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [correlationId, setCorrelationId] = useState<string | null>(null);
 
@@ -33,16 +72,38 @@ export function FoundationStatus({ initialVersion = "0.1.0" }: FoundationStatusP
       if (corr) setCorrelationId(corr);
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const dep = body.dependency ?? "unknown";
-        throw new Error(`Dependency ${dep} unavailable (${res.status})`);
+        const contentType = res.headers.get("Content-Type") ?? "";
+        const body = contentType.includes("json") ? await res.json().catch(() => null) : null;
+
+        if (!body) {
+          // The host returned a page instead of Problem Details (proxy/edge error, crash page).
+          setProblem({ status: res.status, title: "Host did not return a readiness report" });
+          setError(
+            `The host answered HTTP ${res.status} with ${contentType || "an unknown content type"}. Check the deployment logs with correlation id ${corr ?? "unknown"}.`
+          );
+          setState("error");
+          return;
+        }
+
+        const details = body as ProblemDetails;
+        setProblem(details);
+        if (details.correlationId) setCorrelationId(details.correlationId);
+        setError(details.detail ?? `Request failed with HTTP ${res.status}`);
+        setState("error");
+        return;
       }
 
       const data = (await res.json()) as HealthData;
       setHealth(data);
+      setProblem(null);
       setState("ready");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch health");
+      setProblem(null);
+      setError(
+        e instanceof Error
+          ? `Could not reach /health/ready: ${e.message}`
+          : "Could not reach /health/ready"
+      );
       setState("error");
     }
   }, []);
@@ -50,6 +111,10 @@ export function FoundationStatus({ initialVersion = "0.1.0" }: FoundationStatusP
   useEffect(() => {
     fetchHealth();
   }, [fetchHealth]);
+
+  const retrying = state === "retrying";
+  const errorTitle = titleForProblem(problem, "Readiness check failed");
+  const reasonHint = problem?.reason ? REASON_HINTS[problem.reason] : undefined;
 
   return (
     <div className="card" style={{ marginTop: "16px" }}>
@@ -108,12 +173,37 @@ export function FoundationStatus({ initialVersion = "0.1.0" }: FoundationStatusP
         {state === "error" && (
           <div>
             <div className="banner" style={{ borderColor: "var(--red)", background: "var(--red-soft)" }} role="alert">
-              <span>Database or schema dependency unavailable. {error}</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <strong>{errorTitle}</strong>
+                {error && <span>{error}</span>}
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
+                  {problem?.status && <span className="status-chip">HTTP {problem.status}</span>}
+                  {problem?.code && <span className="status-chip">Code: {problem.code}</span>}
+                  {problem?.dependency && <span className="status-chip">Dependency: {problem.dependency}</span>}
+                  {problem?.reason && <span className="status-chip">Reason: {problem.reason}</span>}
+                  {correlationId && <span className="status-chip">Correlation: {correlationId.slice(0, 8)}…</span>}
+                </div>
+              </div>
             </div>
-            <div style={{ marginTop: "12px" }}>
-              <button className="btn btn-primary" onClick={fetchHealth} aria-label="Retry health check">
-                Retry
+
+            {reasonHint && (
+              <div className="banner" style={{ marginTop: "12px", borderColor: "var(--yellow)", background: "var(--yellow-soft)" }} role="status">
+                <span>Fix: {reasonHint}</span>
+              </div>
+            )}
+
+            <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              <button
+                className="btn btn-primary"
+                onClick={fetchHealth}
+                disabled={retrying}
+                aria-label="Retry health check"
+              >
+                {retrying ? "Retrying…" : "Retry"}
               </button>
+              <span style={{ color: "var(--muted)", fontSize: "11px" }}>
+                Re-runs the bounded database and schema probe. Safe to press as often as needed.
+              </span>
             </div>
           </div>
         )}

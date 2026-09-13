@@ -20,19 +20,16 @@ if (existsSync(envLocalPath)) {
 }
 // If neither exists, assume env vars are set by platform (Vercel, Railway, etc.)
 
-const required = ["DATABASE_URL"];
-const missing: string[] = [];
+// Any one of these satisfies the database requirement: hosts and the Supabase <-> Vercel
+// integration inject different names for the same secret (see src/infrastructure/config/database-url.ts).
+const acceptedDatabaseKeys = ["DATABASE_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL", "SUPABASE_DB_URL"];
+const databaseKey = acceptedDatabaseKeys.find((key) => (process.env[key] ?? "").trim().length > 0);
 
-for (const key of required) {
-  if (!process.env[key]) {
-    missing.push(key);
-  }
-}
-
-if (missing.length > 0) {
-  console.error(`Missing required config: ${missing.join(", ")}`);
-  console.error(`Remediation: set ${missing[0]} in .env.local or environment`);
+if (!databaseKey) {
+  console.error(`Missing required config: ${acceptedDatabaseKeys[0]}`);
+  console.error(`Accepted alternative names: ${acceptedDatabaseKeys.slice(1).join(", ")}`);
+  console.error(`Remediation: set ${acceptedDatabaseKeys[0]} in .env.local or environment`);
   process.exit(1);
 }
 
-console.log("Config check passed");
+console.log(`Config check passed (connection string from ${databaseKey})`);

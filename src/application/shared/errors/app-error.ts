@@ -8,6 +8,8 @@ export interface AppErrorOptions {
   errors?: Record<string, string[]>;
   cause?: unknown;
   dependency?: "database" | "schema";
+  /** Machine-readable, non-sensitive failure reason (see shared/ports/readiness-probe). */
+  reason?: string;
 }
 
 export class AppError extends Error {
@@ -18,6 +20,7 @@ export class AppError extends Error {
   public readonly errors?: Record<string, string[]>;
   public readonly isOperational: boolean = true;
   public readonly dependency?: "database" | "schema";
+  public readonly reason?: string;
 
   constructor(message: string, options: AppErrorOptions = {}) {
     super(message);
@@ -28,6 +31,7 @@ export class AppError extends Error {
     this.detail = options.detail ?? message;
     this.errors = options.errors;
     this.dependency = options.dependency;
+    this.reason = options.reason;
     if (options.cause) {
       (this as any).cause = options.cause;
     }
@@ -82,14 +86,36 @@ export class DomainRuleError extends AppError {
   }
 }
 
+export interface UnavailableOptions {
+  dependency?: "database" | "schema";
+  reason?: string;
+  code?: ErrorCode;
+  status?: number;
+  detail?: string;
+  title?: string;
+  cause?: unknown;
+}
+
 export class UnavailableError extends AppError {
-  constructor(message: string, dependency?: "database" | "schema", code: ErrorCode = ErrorCodes.UNAVAILABLE, status = 503) {
+  /**
+   * Backwards compatible: the second argument is either the dependency category
+   * (legacy positional form) or a full options object.
+   */
+  constructor(message: string, dependencyOrOptions?: "database" | "schema" | UnavailableOptions, code?: ErrorCode, status = 503) {
+    const options: UnavailableOptions =
+      typeof dependencyOrOptions === "string" || dependencyOrOptions === undefined
+        ? { dependency: dependencyOrOptions as "database" | "schema" | undefined, code, status }
+        : dependencyOrOptions;
+
+    const dependency = options.dependency ?? "database";
     super(message, {
-      code,
-      status,
-      title: "Service unavailable",
-      detail: message,
-      dependency: dependency ?? "database",
+      code: options.code ?? ErrorCodes.UNAVAILABLE,
+      status: options.status ?? 503,
+      title: options.title ?? (dependency === "schema" ? "Schema not ready" : "Service unavailable"),
+      detail: options.detail ?? message,
+      dependency,
+      reason: options.reason,
+      cause: options.cause,
     });
   }
 }

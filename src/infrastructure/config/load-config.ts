@@ -1,4 +1,5 @@
 import { configSchema, parseCorsOrigins } from "./schema";
+import { RUNTIME_DATABASE_URL_KEYS, resolveRuntimeDatabaseUrl } from "./database-url";
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -7,8 +8,38 @@ export class ConfigError extends Error {
   }
 }
 
+/**
+ * True when a ConfigError concerns the database dependency, so the HTTP layer can answer
+ * 503 + `dependency: database` instead of an opaque 500.
+ */
+export function isDatabaseConfigError(error: unknown): boolean {
+  if (!(error instanceof ConfigError)) return false;
+  return /DATABASE_URL|DIRECT_URL|POSTGRES_|Supabase|database/i.test(error.message);
+}
+
+/**
+ * Derive the deployment origin from the host's own environment when APP_ORIGIN
+ * was not set explicitly (Vercel injects these for every deployment).
+ */
+export function resolveOriginFromHostEnv(env: NodeJS.ProcessEnv = process.env): string | null {
+  // Only trust these variables when the build actually runs on Vercel.
+  if (!env.VERCEL) return null;
+  const candidates = [env.VERCEL_PROJECT_PRODUCTION_URL, env.VERCEL_BRANCH_URL, env.VERCEL_URL];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      return new URL(candidate.includes("://") ? candidate : `https://${candidate}`).origin;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 export interface AppConfig {
   databaseUrl: string;
+  /** Name of the environment variable the connection string came from (never the value). */
+  databaseUrlSource: string;
   app: {
     origin: string | null;
     corsOrigins: string[];
@@ -34,10 +65,13 @@ export interface AppConfig {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const databaseUrl = env.DATABASE_URL;
+  // Resolve the connection string from the canonical name or the names injected by
+  // the Supabase <-> Vercel integration (POSTGRES_PRISMA_URL / POSTGRES_URL).
+  const resolvedDatabaseUrl = resolveRuntimeDatabaseUrl(env);
+  const databaseUrl = resolvedDatabaseUrl?.url;
   if (!databaseUrl) {
     throw new ConfigError(
-      "DATABASE_URL is required. Remediation: set DATABASE_URL to a valid PostgreSQL connection string in .env.local or environment. Value must not be logged."
+      `Database connection string is missing. Remediation: set DATABASE_URL (accepted alternative names: ${RUNTIME_DATABASE_URL_KEYS.filter((k) => k !== "DATABASE_URL").join(", ")}) in the host environment and redeploy. Value must not be logged.`
     );
   }
 
@@ -46,14 +80,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   let appOrigin: string | null = null;
   if (isProduction) {
-    const origin = env.APP_ORIGIN;
+    const origin = env.APP_ORIGIN ?? resolveOriginFromHostEnv(env);
     if (!origin) {
       throw new ConfigError(
         "APP_ORIGIN is required in production. Remediation: set APP_ORIGIN to the exact origin URL (e.g. https://example.com) in environment."
       );
     }
     try {
-      const url = new URL(origin);
+      const url = new URL(origin.includes("://") ? origin : `https://${origin}`);
       appOrigin = url.origin;
     } catch {
       throw new ConfigError(
@@ -149,6 +183,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const rawConfig: AppConfig = {
     databaseUrl: parsed.data.databaseUrl,
+    databaseUrlSource: resolvedDatabaseUrl.source,
     app: {
       origin: (parsed.data.app.origin as string) ?? null,
       corsOrigins: parsed.data.app.corsOrigins,
@@ -177,6 +212,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   Object.defineProperty(config, "databaseUrl", {
     value: rawConfig.databaseUrl,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+
+  Object.defineProperty(config, "databaseUrlSource", {
+    value: rawConfig.databaseUrlSource,
     enumerable: false,
     writable: false,
     configurable: false,

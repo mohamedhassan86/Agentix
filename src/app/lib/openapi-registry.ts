@@ -30,6 +30,7 @@ export const ProblemSchema = openApiRegistry.register("Problem", z.object({
   errors: z.record(z.string(), z.array(z.string())).optional(),
   instance: z.string().optional(),
   dependency: z.enum(["database", "schema"]).optional(),
+  reason: z.string().regex(/^[a-z][a-z0-9_]{2,63}$/).optional(),
 }));
 
 export const FoundationWorkResponseSchema = openApiRegistry.register("FoundationWorkResponse", z.object({

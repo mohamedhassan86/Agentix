@@ -79,7 +79,17 @@ export async function dispatchRoute<TReq>(params: {
     });
   } catch (error) {
     const problem = mapErrorToProblem(error, correlationId);
-    logger.warn({ status: problem.status, code: problem.code, operation: params.operation, correlationId });
+    // Log stable machine fields only: error class, code, dependency, reason.
+    // Driver messages can embed connection strings, so they are never logged.
+    logger.warn({
+      status: problem.status,
+      code: problem.code,
+      dependency: problem.dependency,
+      reason: problem.reason,
+      errorName: error instanceof Error ? error.name : typeof error,
+      operation: params.operation,
+      correlationId,
+    });
 
     try {
       recordHttpFailure({ operation: params.operation, status: String(problem.status) });

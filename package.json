@@ -22,7 +22,10 @@
     "license:check": "node scripts/check-licenses.mjs",
     "prisma:validate": "prisma validate",
     "db:migrate": "prisma migrate deploy",
+    "db:migrate:deploy": "node scripts/migrate-deploy.mjs",
     "db:status": "prisma migrate status",
+    "prisma:generate:deploy": "node scripts/prisma-generate.mjs",
+    "build:vercel": "node scripts/prisma-generate.mjs && node scripts/migrate-deploy.mjs && next build",
     "config:check": "tsx scripts/check-config.ts"
   },
   "dependencies": {
